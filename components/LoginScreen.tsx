@@ -21,6 +21,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
+  // Voice confirmation state (shared)
+  const [pendingTranscript, setPendingTranscript] = useState<string>("");
+  const [pendingAudio, setPendingAudio] = useState<string>("");
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+
   // Signup State
   const [signupStep, setSignupStep] = useState(1); // 1: Creds, 2: Voice
   const [newUsername, setNewUsername] = useState("");
@@ -44,6 +49,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       setError(null);
       setIsRecording(false);
       setIsProcessing(false);
+      setPendingTranscript("");
+      setPendingAudio("");
       if (mode === 'login') {
           setLoginStep('creds');
           setLoginEmail("");
@@ -62,6 +69,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       setMode('login');
       if (stage === 'voice') setLoginStep('voice');
       else setLoginStep('creds');
+      setPendingTranscript("");
+      setPendingAudio("");
   }, [stage]);
 
   const requireSupabase = () => {
@@ -81,6 +90,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
           if (error) throw error;
           onAuthed?.();
           setLoginStep('voice');
+          setPendingTranscript("");
+          setPendingAudio("");
       } catch (e: any) {
           setError(e.message || "Error al iniciar sesión");
       } finally {
@@ -102,8 +113,57 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
           // With email verification disabled, user should be signed in.
           onAuthed?.();
           setSignupStep(2);
+          setPendingTranscript("");
+          setPendingAudio("");
       } catch (e: any) {
           setError(e.message || "Error al registrar usuario");
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
+  const resetPendingVoice = () => {
+      setPendingTranscript("");
+      setPendingAudio("");
+      setError(null);
+      try {
+          audioElRef.current?.pause();
+          // Reset playback position
+          if (audioElRef.current) audioElRef.current.currentTime = 0;
+      } catch {}
+  };
+
+  const acceptPendingVoice = async () => {
+      if (!pendingTranscript) {
+          setError("No hay transcripción para confirmar");
+          return;
+      }
+
+      setIsProcessing(true);
+      setError(null);
+      try {
+          if (mode === 'login') {
+              const identified = await storageService.verifyUserVoice(pendingTranscript);
+              if (identified) {
+                  onVoiceVerified?.();
+              } else {
+                  setError(`Identidad no verificada. Se escuchó: "${pendingTranscript}"`);
+                  resetPendingVoice();
+              }
+              return;
+          }
+
+          // signup
+          setVoicePhrase(pendingTranscript);
+          if (supabase) {
+              const { error } = await supabase.functions.invoke('voice-enroll', {
+                  body: { transcript: pendingTranscript, phrase_hint: newUsername || signupEmail }
+              });
+              if (error) throw new Error(error.message);
+          }
+          onVoiceVerified?.();
+      } catch (e: any) {
+          setError(e.message || "Error en autenticación");
       } finally {
           setIsProcessing(false);
       }
@@ -240,26 +300,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
               throw new Error("No se detectó voz. Intenta de nuevo.");
           }
 
-          if (mode === 'login') {
-              // VERIFY VOICE (server-side in Cloud mode)
-              const identified = await storageService.verifyUserVoice(cleanText);
-              if (identified) {
-                  onVoiceVerified?.();
-              } else {
-                  setError(`Identidad no verificada. Se escuchó: "${cleanText}"`);
-              }
-              return;
-          }
-
-          // SIGNUP: store phrase and enroll (Cloud mode)
-          setVoicePhrase(cleanText);
-          if (supabase) {
-              const { error } = await supabase.functions.invoke('voice-enroll', {
-                  body: { transcript: cleanText, phrase_hint: newUsername || signupEmail }
-              });
-              if (error) throw new Error(error.message);
-              onVoiceVerified?.();
-          }
+          // NEW FLOW: store pending transcript + audio for user confirmation
+          setPendingTranscript(cleanText);
+          setPendingAudio(base64Audio);
       } catch (e: any) {
           setError(e.message || "Error en autenticación");
       } finally {
@@ -350,31 +393,67 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                     {/* LOGIN: STEP 2 (VOICE) */}
                     {loginStep === 'voice' && (
                         <div className="flex flex-col items-center animate-fade-in-up">
-                            <div className="relative mb-6">
-                                <canvas ref={canvasRef} width={200} height={200} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
-                                
-                                <button 
-                                    onMouseDown={startRecording}
-                                    onMouseUp={stopRecording}
-                                    onTouchStart={startRecording}
-                                    onTouchEnd={stopRecording}
-                                    className={`relative w-20 h-20 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isRecording ? 'border-orange-500 bg-orange-500/10 scale-95' : 'border-neutral-800 bg-neutral-900 hover:border-neutral-600'}`}
-                                    disabled={isProcessing}
-                                >
-                                     {isProcessing ? (
-                                         <Loader2 className="animate-spin text-orange-500" size={28} />
-                                     ) : (
-                                         <Mic className={isRecording ? 'text-orange-500' : 'text-neutral-500'} size={28} />
-                                     )}
-                                </button>
-                            </div>
+                            {pendingTranscript ? (
+                                <div className="w-full">
+                                    <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-2">Confirmación</p>
+                                    <div className="bg-neutral-950 border border-neutral-800 p-3 mb-3">
+                                        <p className="text-[10px] text-neutral-500 uppercase mb-1">Se escuchó:</p>
+                                        <p className="text-sm text-white font-bold">"{pendingTranscript}"</p>
+                                    </div>
 
-                            <p className="text-xs text-neutral-500 uppercase tracking-widest mb-2">
-                                {isRecording ? "Listening..." : isProcessing ? "Verifying..." : "Hold to Authenticate"}
-                            </p>
-                            <p className="text-[10px] text-neutral-600 mb-6">
-                                Di tu frase de seguridad registrada.
-                            </p>
+                                    {pendingAudio && (
+                                        <div className="mb-3">
+                                            <audio ref={audioElRef} controls className="w-full" src={pendingAudio} />
+                                        </div>
+                                    )}
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={resetPendingVoice}
+                                            disabled={isProcessing}
+                                            className="flex-1 text-[10px] text-neutral-300 uppercase hover:text-white py-2 border border-neutral-800"
+                                        >
+                                            Reintentar
+                                        </button>
+                                        <button
+                                            onClick={acceptPendingVoice}
+                                            disabled={isProcessing}
+                                            className="flex-1 text-[10px] bg-orange-600 text-black font-bold uppercase py-2 hover:bg-orange-500"
+                                        >
+                                            {isProcessing ? "Procesando..." : "Aceptar"}
+                                        </button>
+                                    </div>
+                                    <p className="mt-3 text-[10px] text-neutral-600">Si no coincide, presiona Reintentar y repite la frase.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="relative mb-6">
+                                        <canvas ref={canvasRef} width={200} height={200} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+                                        
+                                        <button 
+                                            onMouseDown={startRecording}
+                                            onMouseUp={stopRecording}
+                                            onTouchStart={startRecording}
+                                            onTouchEnd={stopRecording}
+                                            className={`relative w-20 h-20 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isRecording ? 'border-orange-500 bg-orange-500/10 scale-95' : 'border-neutral-800 bg-neutral-900 hover:border-neutral-600'}`}
+                                            disabled={isProcessing}
+                                        >
+                                             {isProcessing ? (
+                                                 <Loader2 className="animate-spin text-orange-500" size={28} />
+                                             ) : (
+                                                 <Mic className={isRecording ? 'text-orange-500' : 'text-neutral-500'} size={28} />
+                                             )}
+                                        </button>
+                                    </div>
+
+                                    <p className="text-xs text-neutral-500 uppercase tracking-widest mb-2">
+                                        {isRecording ? "Listening..." : isProcessing ? "Transcribing..." : "Hold to Authenticate"}
+                                    </p>
+                                    <p className="text-[10px] text-neutral-600 mb-6">
+                                        Di tu frase de seguridad registrada.
+                                    </p>
+                                </>
+                            )}
                         </div>
                     )}
                 </>
@@ -453,9 +532,23 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                                          <Mic className={isRecording ? 'text-blue-500' : 'text-neutral-500'} size={28} />
                                      )}
                                 </button>
-                            </div>
+                             </div>
                             
-                            {voicePhrase ? (
+                            {pendingTranscript ? (
+                                <div className="mb-4 text-center w-full">
+                                    <p className="text-[10px] text-neutral-500 uppercase mb-1">Se escuchó:</p>
+                                    <div className="bg-blue-900/20 border border-blue-900 p-2 text-blue-300 text-xs font-bold italic mb-3">"{pendingTranscript}"</div>
+                                    {pendingAudio && (
+                                        <div className="mb-3">
+                                            <audio ref={audioElRef} controls className="w-full" src={pendingAudio} />
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                         <button onClick={resetPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] text-neutral-500 uppercase hover:text-white py-2 border border-neutral-800">Retry</button>
+                                         <button onClick={acceptPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">{isProcessing ? "Processing..." : "Accept"}</button>
+                                    </div>
+                                </div>
+                            ) : voicePhrase ? (
                                 <div className="mb-4 text-center w-full">
                                     <p className="text-[10px] text-neutral-500 uppercase mb-1">Detected Phrase:</p>
                                     <div className="bg-blue-900/20 border border-blue-900 p-2 text-blue-300 text-xs font-bold italic mb-4">
