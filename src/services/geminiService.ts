@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, Modality, Type } from "@google/genai";
-import { ModelType, ImageGenOptions, Source } from "../types";
+import { ModelType, ImageGenOptions, Source } from "../../types";
 import { supabase } from "../lib/supabase/client";
 
 // Helper to safely access env vars

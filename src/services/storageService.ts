@@ -1,4 +1,4 @@
-import { Project, UserProfile, Source, ChatMessage, SourceHistoryItem } from '../types';
+import { Project, UserProfile, Source, ChatMessage, SourceHistoryItem } from '../../types';
 import { StorageAdapter } from './adapters/StorageAdapter';
 import { LocalAdapter } from './adapters/LocalAdapter';
 import { SupabaseAdapter } from './adapters/SupabaseAdapter';
