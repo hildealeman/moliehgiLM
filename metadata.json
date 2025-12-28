@@ -1,0 +1,8 @@
+{
+  "name": "MolieLM",
+  "description": "Un clon de NotebookLM localizado en español. Sistema de Inteligencia Fundamentada en Humanos (HGI) para conectar ideas, analizar documentos y debatir en tiempo real.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
