@@ -33,15 +33,19 @@ export class SupabaseAdapter implements StorageAdapter {
     if (!supabase) return;
     const userId = await this.getAuthUserId();
     if (!userId) return;
+    // Align with DB schema: molielm_profiles(user_id, name, created_at, updated_at)
     const { error } = await supabase.from(TABLES.profiles).upsert({
-      id: userId,
+      user_id: userId,
       name: user.name,
-      email: user.email,
-      role: user.role,
-      bio: user.bio,
-      avatar_url: user.avatarUrl
+      updated_at: new Date().toISOString(),
     });
     if (error) console.error("Supabase Save User Error", error);
+
+    // Cache a minimal local profile to keep UI stable
+    try {
+      const cached: UserProfile = { id: userId, name: user.name || 'User', email: user.email || '' };
+      localStorage.setItem('molielm_user', JSON.stringify(cached));
+    } catch {}
   }
 
   async verifyVoicePhrase(transcript: string): Promise<{ verified: boolean; username?: string }> {

@@ -122,7 +122,7 @@ serve(async (req: Request) => {
     const { data: profile } = await supabase
       .from("molielm_profiles")
       .select("name")
-      .eq("id", userId)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (profile?.name) username = profile.name;

@@ -44,6 +44,52 @@ const geminiGenerateContent = async (prompt: string) => {
   return text;
 };
 
+const parseDataUrl = (dataUrl: string): { mimeType: string; data: string } => {
+  const s = String(dataUrl || "");
+  if (!s.includes("base64,")) {
+    return { mimeType: "audio/webm", data: s };
+  }
+  const [meta, b64] = s.split("base64,");
+  const m = meta.match(/data:(.*?);/);
+  return { mimeType: m?.[1] || "audio/webm", data: b64 };
+};
+
+const geminiTranscribe = async (dataUrl: string): Promise<string> => {
+  const { mimeType, data } = parseDataUrl(dataUrl);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data,
+              },
+            },
+            {
+              text: "Transcribe EXACTLY what is said in this audio. Output only the raw transcript in Spanish if applicable. Do not add punctuation unless clearly spoken.",
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gemini REST error ${res.status}: ${text}`);
+  }
+  const json = await res.json();
+  const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("") || "";
+  return text;
+};
+
 serve(async (req: any) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: getCorsHeaders(req) });
@@ -70,9 +116,8 @@ serve(async (req: any) => {
     }
 
     if (action === 'transcribe') {
-         // Minimal mock for transcription via proxy
-         // In production, this would use a dedicated endpoint or model
-         return new Response(JSON.stringify({ text: "Transcription from Proxy (Mock)" }), {
+         const text = await geminiTranscribe(String(audio || ""));
+         return new Response(JSON.stringify({ text }), {
              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
          });
     }
