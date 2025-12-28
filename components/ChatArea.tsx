@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Globe, Image as ImageIcon, Sparkles, Brain, X, PlayCircle, Loader2, FileText, ChevronDown, ChevronRight, Zap, AlignLeft, Download, Lightbulb, Link2, Eye, MessageSquarePlus, Menu, Headphones, Network, Wand2, PauseCircle, FileAudio, FilePlus, Check, CassetteTape, Save, AlertTriangle, AlertCircle, ChefHat } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { ChatMessage, ImageGenOptions, Source } from '../types';
-import { generateTextResponse, generateImage, transcribeAudio, textToSpeech, analyzeImage, generateSuggestions, generatePodcastAudio } from '../services/geminiService';
+import { generateTextResponse, generateImage, transcribeAudio, textToSpeech, analyzeImage, generateSuggestions, generatePodcastAudio } from '../src/services/geminiService';
 
 interface ChatAreaProps {
   chatHistory: ChatMessage[];
@@ -313,7 +313,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
 
         // 3. Create AudioBuffer
         const buffer = ctx.createBuffer(1, float32Data.length, 24000); // Gemini TTS is 24kHz
-        buffer.copyToChannel(float32Data, 0);
+        buffer.copyToChannel(new Float32Array(float32Data), 0);
 
         // 4. Play
         const source = ctx.createBufferSource();

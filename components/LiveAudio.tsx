@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { Mic, MicOff, X, Activity, Volume2, Save, FileText, CheckCircle, AlertOctagon } from 'lucide-react';
 import { ModelType } from '../types';
-import { getEffectiveApiKey } from '../services/geminiService';
+import { getEffectiveApiKey } from '../src/services/geminiService';
 
 interface LiveAudioProps {
   isOpen: boolean;

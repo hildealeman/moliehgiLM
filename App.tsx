@@ -5,8 +5,9 @@ import LiveAudio from './components/LiveAudio';
 import ApiKeyModal from './components/ApiKeyModal';
 import LoginScreen from './components/LoginScreen';
 import { Source, ChatMessage, SourceHistoryItem, Project, UserProfile } from './types';
-import { storageService } from './services/storageService';
-import { getEffectiveApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMultimodal } from './services/geminiService';
+import { storageService } from './src/services/storageService';
+import { getEffectiveApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMultimodal } from './src/services/geminiService';
+import { supabase } from './src/lib/supabase/client';
 import { Menu } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -22,7 +23,8 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMirrorMode, setIsMirrorMode] = useState(false);
   
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
+  const [isVoiceGated, setIsVoiceGated] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
@@ -34,6 +36,19 @@ const App: React.FC = () => {
   // Initial Load - Now Async
   useEffect(() => {
     const loadData = async () => {
+        // Track Supabase session state (required for Cloud mode with RLS)
+        if (supabase) {
+            const { data } = await supabase.auth.getSession();
+            setHasSupabaseSession(!!data.session);
+            const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+                setHasSupabaseSession(!!session);
+                if (!session) setIsVoiceGated(false);
+            });
+            // Avoid leaking listener
+            // @ts-ignore
+            (loadData as any)._unsub = sub?.subscription;
+        }
+
         const loadedProjects = await storageService.getProjects();
         setProjects(loadedProjects);
         
@@ -60,6 +75,14 @@ const App: React.FC = () => {
         }
     };
     loadData();
+
+    return () => {
+        try {
+            // @ts-ignore
+            const sub = (loadData as any)._unsub;
+            if (sub) sub.unsubscribe();
+        } catch {}
+    };
   }, []);
 
   // Save changes
@@ -123,7 +146,13 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-      setIsAuthenticated(false);
+      try {
+          if (supabase) {
+              supabase.auth.signOut();
+          }
+      } catch {}
+      setHasSupabaseSession(false);
+      setIsVoiceGated(false);
   };
 
   const handleUpdateUser = async (updatedUser: UserProfile) => {
@@ -178,14 +207,44 @@ const App: React.FC = () => {
     }).join('\n\n')}`;
   };
 
-  if (!isAuthenticated) {
+  // Gate 1: Supabase Auth session (required for Cloud Mode)
+  if (supabase && !hasSupabaseSession) {
       return (
           <>
             <LoginScreen 
-                onLogin={() => {
-                    setIsAuthenticated(true);
+                stage="supabase" 
+                onAuthed={() => {
+                    setHasSupabaseSession(true);
+                }}
+                onVoiceVerified={() => {
+                    setIsVoiceGated(true);
                     setUser(storageService.getUser());
-                }} 
+                }}
+                onOpenSettings={() => setShowApiKeyModal(true)} 
+            />
+            <ApiKeyModal 
+                isOpen={showApiKeyModal} 
+                onClose={() => setShowApiKeyModal(false)}
+                onSave={handleSaveApiKey}
+                hasSystemKey={!!getSystemApiKey()}
+            />
+          </>
+      );
+  }
+
+  // Gate 2: Voice gate (additional)
+  if (!isVoiceGated) {
+      return (
+          <>
+            <LoginScreen 
+                stage={supabase ? "voice" : "legacy"}
+                onAuthed={() => {
+                    setHasSupabaseSession(true);
+                }}
+                onVoiceVerified={() => {
+                    setIsVoiceGated(true);
+                    setUser(storageService.getUser());
+                }}
                 onOpenSettings={() => setShowApiKeyModal(true)} 
             />
             <ApiKeyModal 

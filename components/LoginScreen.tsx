@@ -1,25 +1,30 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Lock, ShieldCheck, Activity, Loader2, AlertTriangle, UserPlus, LogIn, ChevronRight, Settings } from 'lucide-react';
-import { transcribeAudio } from '../services/geminiService';
-import { storageService } from '../services/storageService';
+import { transcribeAudio } from '../src/services/geminiService';
+import { storageService } from '../src/services/storageService';
+import { supabase } from '../src/lib/supabase/client';
 
 interface LoginScreenProps {
-  onLogin: () => void;
+  stage?: 'supabase' | 'voice' | 'legacy';
+  onAuthed?: () => void;
+  onVoiceVerified?: () => void;
   onOpenSettings: () => void;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) => {
+const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, onVoiceVerified, onOpenSettings }) => {
   // Modes: 'login' | 'signup'
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   
   // Login State
-  const [loginStep, setLoginStep] = useState<'voice' | 'password'>('voice');
-  const [identifiedUser, setIdentifiedUser] = useState<string>("");
+  const [loginStep, setLoginStep] = useState<'creds' | 'voice'>('creds');
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
   // Signup State
   const [signupStep, setSignupStep] = useState(1); // 1: Creds, 2: Voice
   const [newUsername, setNewUsername] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [voicePhrase, setVoicePhrase] = useState("");
 
@@ -40,16 +45,69 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
       setIsRecording(false);
       setIsProcessing(false);
       if (mode === 'login') {
-          setLoginStep('voice');
-          setIdentifiedUser("");
+          setLoginStep('creds');
+          setLoginEmail("");
           setLoginPassword("");
       } else {
           setSignupStep(1);
           setNewUsername("");
+          setSignupEmail("");
           setNewPassword("");
           setVoicePhrase("");
       }
   }, [mode]);
+
+  useEffect(() => {
+      // When App asks for a specific stage, default to login mode.
+      setMode('login');
+      if (stage === 'voice') setLoginStep('voice');
+      else setLoginStep('creds');
+  }, [stage]);
+
+  const requireSupabase = () => {
+      if (!supabase) throw new Error("Supabase no configurado. Revisa VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.");
+  };
+
+  const handleSupabaseLogin = async () => {
+      requireSupabase();
+      if (!loginEmail || !loginPassword) {
+          setError("Falta email o password");
+          return;
+      }
+      setIsProcessing(true);
+      setError(null);
+      try {
+          const { error } = await supabase!.auth.signInWithPassword({ email: loginEmail, password: loginPassword });
+          if (error) throw error;
+          onAuthed?.();
+          setLoginStep('voice');
+      } catch (e: any) {
+          setError(e.message || "Error al iniciar sesión");
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
+  const handleSupabaseSignup = async () => {
+      requireSupabase();
+      if (!signupEmail || !newPassword) {
+          setError("Falta email o password");
+          return;
+      }
+      setIsProcessing(true);
+      setError(null);
+      try {
+          const { error } = await supabase!.auth.signUp({ email: signupEmail, password: newPassword });
+          if (error) throw error;
+          // With email verification disabled, user should be signed in.
+          onAuthed?.();
+          setSignupStep(2);
+      } catch (e: any) {
+          setError(e.message || "Error al registrar usuario");
+      } finally {
+          setIsProcessing(false);
+      }
+  };
 
   const startVisualizer = (stream: MediaStream) => {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -183,45 +241,30 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
           }
 
           if (mode === 'login') {
-              // VERIFY USER
-              const identified = storageService.verifyUserVoice(cleanText);
+              // VERIFY VOICE (server-side in Cloud mode)
+              const identified = await storageService.verifyUserVoice(cleanText);
               if (identified) {
-                  setIdentifiedUser(identified);
-                  setLoginStep('password');
+                  onVoiceVerified?.();
               } else {
                   setError(`Identidad no verificada. Se escuchó: "${cleanText}"`);
               }
-          } else {
-              // REGISTER VOICE PHRASE
-              setVoicePhrase(cleanText);
+              return;
+          }
+
+          // SIGNUP: store phrase and enroll (Cloud mode)
+          setVoicePhrase(cleanText);
+          if (supabase) {
+              const { error } = await supabase.functions.invoke('voice-enroll', {
+                  body: { transcript: cleanText, phrase_hint: newUsername || signupEmail }
+              });
+              if (error) throw new Error(error.message);
+              onVoiceVerified?.();
           }
       } catch (e: any) {
           setError(e.message || "Error en autenticación");
       } finally {
           setIsProcessing(false);
       }
-  };
-
-  const handleLoginSubmit = (e: React.FormEvent) => {
-      e.preventDefault();
-      if (storageService.verifyPassword(identifiedUser, loginPassword)) {
-          storageService.saveSessionUser(identifiedUser);
-          onLogin();
-      } else {
-          setError("Credenciales inválidas");
-          setLoginPassword("");
-      }
-  };
-
-  const handleSignupComplete = () => {
-      if (!newUsername || !newPassword || !voicePhrase) {
-          setError("Faltan datos para completar el registro");
-          return;
-      }
-      storageService.registerUser(newUsername, newPassword, voicePhrase);
-      // Auto login after signup
-      storageService.saveSessionUser(newUsername);
-      onLogin();
   };
 
   return (
@@ -269,7 +312,42 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
             {/* ================= LOGIN FLOW ================= */}
             {mode === 'login' && (
                 <>
-                    {/* LOGIN: STEP 1 (VOICE) */}
+                    {/* LOGIN: STEP 1 (CREDS) */}
+                    {loginStep === 'creds' && (
+                        <div className="animate-fade-in-up">
+                            <form onSubmit={(e) => { e.preventDefault(); handleSupabaseLogin(); }} className="space-y-4">
+                                <div className="relative group">
+                                    <input 
+                                        type="email" 
+                                        autoFocus
+                                        value={loginEmail}
+                                        onChange={(e) => setLoginEmail(e.target.value)}
+                                        className="w-full bg-black border border-neutral-800 py-3 px-4 text-sm text-white focus:border-orange-500 outline-none transition-colors placeholder-neutral-700 font-mono tracking-widest"
+                                        placeholder="EMAIL"
+                                    />
+                                </div>
+                                <div className="relative group">
+                                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-orange-500 transition-colors" size={16} />
+                                    <input 
+                                        type="password" 
+                                        value={loginPassword}
+                                        onChange={(e) => setLoginPassword(e.target.value)}
+                                        className="w-full bg-black border border-neutral-800 py-3 pl-10 pr-4 text-sm text-white focus:border-orange-500 outline-none transition-colors placeholder-neutral-700 font-mono tracking-widest"
+                                        placeholder="PASSWORD"
+                                    />
+                                </div>
+                                <button 
+                                    type="submit"
+                                    disabled={isProcessing}
+                                    className="w-full bg-orange-600 hover:bg-orange-500 text-black font-bold uppercase text-xs py-3 tracking-[0.2em] transition-all flex items-center justify-center gap-2"
+                                >
+                                    {isProcessing ? (<><Loader2 className="animate-spin" size={14} /> Authenticating</>) : (<>Login <ChevronRight size={14} /></>)}
+                                </button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* LOGIN: STEP 2 (VOICE) */}
                     {loginStep === 'voice' && (
                         <div className="flex flex-col items-center animate-fade-in-up">
                             <div className="relative mb-6">
@@ -299,43 +377,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
                             </p>
                         </div>
                     )}
-
-                    {/* LOGIN: STEP 2 (PASSWORD) */}
-                    {loginStep === 'password' && (
-                        <div className="animate-fade-in-up">
-                            <div className="flex items-center gap-2 mb-6 bg-green-900/10 border border-green-900/30 p-2 rounded">
-                                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                                <span className="text-[10px] text-green-500 uppercase font-bold tracking-wider">ID Confirmed: {identifiedUser.toUpperCase()}</span>
-                            </div>
-
-                            <form onSubmit={handleLoginSubmit} className="space-y-4">
-                                <div className="relative group">
-                                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-orange-500 transition-colors" size={16} />
-                                    <input 
-                                        type="password" 
-                                        autoFocus
-                                        value={loginPassword}
-                                        onChange={(e) => setLoginPassword(e.target.value)}
-                                        className="w-full bg-black border border-neutral-800 py-3 pl-10 pr-4 text-sm text-white focus:border-orange-500 outline-none transition-colors placeholder-neutral-700 font-mono tracking-widest"
-                                        placeholder="PASSWORD"
-                                    />
-                                </div>
-                                <button 
-                                    type="submit"
-                                    className="w-full bg-orange-600 hover:bg-orange-500 text-black font-bold uppercase text-xs py-3 tracking-[0.2em] transition-all flex items-center justify-center gap-2"
-                                >
-                                    Access System <ChevronRight size={14} />
-                                </button>
-                            </form>
-                            
-                            <button 
-                                onClick={() => { setLoginStep('voice'); setLoginPassword(""); setError(null); }}
-                                className="w-full mt-4 text-[10px] text-neutral-600 hover:text-white uppercase tracking-wider"
-                            >
-                                Cancel / Retry Voice
-                            </button>
-                        </div>
-                    )}
                 </>
             )}
 
@@ -355,6 +396,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
                                 />
                             </div>
                             <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-neutral-500 uppercase">Email</label>
+                                <input 
+                                    type="email"
+                                    className="w-full bg-black border border-neutral-800 p-2 text-sm text-white focus:border-blue-500 outline-none font-mono"
+                                    placeholder="you@email.com"
+                                    value={signupEmail}
+                                    onChange={e => setSignupEmail(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-neutral-500 uppercase">Password</label>
                                 <input 
                                     type="password"
@@ -366,12 +417,17 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
                             </div>
                             <button 
                                 onClick={() => {
-                                    if(newUsername && newPassword) setSignupStep(2);
-                                    else setError("Por favor completa todos los campos");
+                                    if (stage === 'legacy') {
+                                        if(newUsername && newPassword) setSignupStep(2);
+                                        else setError("Por favor completa todos los campos");
+                                        return;
+                                    }
+                                    handleSupabaseSignup();
                                 }}
+                                disabled={isProcessing}
                                 className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold uppercase text-xs py-3 tracking-widest mt-4"
                             >
-                                Next: Voice Setup
+                                {isProcessing ? "Creating Account..." : "Next: Voice Setup"}
                             </button>
                         </div>
                     )}
@@ -407,7 +463,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onOpenSettings }) =>
                                     </div>
                                     <div className="flex gap-2">
                                          <button onClick={() => setVoicePhrase("")} className="flex-1 text-[10px] text-neutral-500 uppercase hover:text-white py-2 border border-neutral-800">Retry</button>
-                                         <button onClick={handleSignupComplete} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">Complete Registration</button>
+                                         <button onClick={() => onVoiceVerified?.()} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">Complete Registration</button>
                                     </div>
                                 </div>
                             ) : (

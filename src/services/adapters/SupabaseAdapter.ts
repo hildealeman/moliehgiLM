@@ -1,9 +1,27 @@
 
 import { StorageAdapter } from './StorageAdapter';
-import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../types';
+import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../../types';
 import { supabase } from '../../lib/supabase/client';
 
+const TABLES = {
+  profiles: 'molielm_profiles',
+  projects: 'molielm_projects',
+  sources: 'molielm_sources',
+  messages: 'molielm_messages'
+} as const;
+
 export class SupabaseAdapter implements StorageAdapter {
+  private async getAuthUserId(): Promise<string | null> {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) return null;
+      return data.user?.id || null;
+    } catch {
+      return null;
+    }
+  }
+
   getUser(): UserProfile {
     // In a real app, this would get the Auth context. 
     // For now, return a placeholder or cached user from local storage to not break sync UI.
@@ -13,8 +31,10 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async saveUser(user: UserProfile): Promise<void> {
     if (!supabase) return;
-    const { error } = await supabase.from('profiles').upsert({
-      id: user.id,
+    const userId = await this.getAuthUserId();
+    if (!userId) return;
+    const { error } = await supabase.from(TABLES.profiles).upsert({
+      id: userId,
       name: user.name,
       email: user.email,
       role: user.role,
@@ -37,9 +57,12 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async getProjects(): Promise<Project[]> {
     if (!supabase) return [];
+    const userId = await this.getAuthUserId();
+    if (!userId) return [];
     const { data, error } = await supabase
-      .from('projects')
-      .select('*, sources(*), messages(*)') // Naive fetch for demo; usually pagination needed
+      .from(TABLES.projects)
+      .select(`*, ${TABLES.sources}(*), ${TABLES.messages}(*)`) // Naive fetch for demo; usually pagination needed
+      .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -53,7 +76,7 @@ export class SupabaseAdapter implements StorageAdapter {
         name: p.name,
         createdAt: new Date(p.created_at).getTime(),
         updatedAt: new Date(p.updated_at).getTime(),
-        sources: p.sources.map((s: any) => ({
+        sources: (p[TABLES.sources] || []).map((s: any) => ({
             id: s.id,
             title: s.title,
             content: s.content_preview || "", // Full content might be fetched on demand
@@ -61,7 +84,7 @@ export class SupabaseAdapter implements StorageAdapter {
             mimeType: s.mime_type,
             extractedText: s.extracted_text
         })),
-        chatHistory: p.messages.map((m: any) => ({
+        chatHistory: (p[TABLES.messages] || []).map((m: any) => ({
             id: m.id,
             role: m.role,
             text: m.text,
@@ -75,10 +98,13 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async saveProject(project: Project): Promise<void> {
     if (!supabase) return;
+    const userId = await this.getAuthUserId();
+    if (!userId) return;
     
     // Upsert Project
-    const { error } = await supabase.from('projects').upsert({
+    const { error } = await supabase.from(TABLES.projects).upsert({
         id: project.id,
+        user_id: userId,
         name: project.name,
         updated_at: new Date().toISOString()
     });
@@ -90,11 +116,14 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async deleteProject(id: string): Promise<void> {
     if (!supabase) return;
-    await supabase.from('projects').delete().eq('id', id);
+    await supabase.from(TABLES.projects).delete().eq('id', id);
   }
 
   async addSource(projectId: string, source: Source): Promise<Source> {
     if (!supabase) throw new Error("Supabase client not initialized");
+
+    const userId = await this.getAuthUserId();
+    if (!userId) throw new Error("Supabase auth required");
 
     let storagePath = null;
     let contentPreview = source.content.substring(0, 1000); // Store snippets in DB
@@ -102,7 +131,7 @@ export class SupabaseAdapter implements StorageAdapter {
     // 1. Upload File if binary
     if (source.type !== 'text') {
         const fileExt = source.mimeType?.split('/')[1] || 'bin';
-        const fileName = `${projectId}/${Date.now()}_${source.title.replace(/\s/g, '_')}.${fileExt}`;
+        const fileName = `molielm/${userId}/${projectId}/${Date.now()}_${source.title.replace(/\s/g, '_')}.${fileExt}`;
         
         // Convert Base64 to Blob
         const base64Data = source.content.split(',')[1];
@@ -124,8 +153,9 @@ export class SupabaseAdapter implements StorageAdapter {
     }
 
     // 2. Create DB Record
-    const { data, error } = await supabase.from('sources').insert({
+    const { data, error } = await supabase.from(TABLES.sources).insert({
         project_id: projectId,
+        user_id: userId,
         title: source.title,
         type: source.type,
         mime_type: source.mimeType,
@@ -142,7 +172,7 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async removeSource(projectId: string, sourceId: string): Promise<void> {
     if (!supabase) return;
-    await supabase.from('sources').delete().eq('id', sourceId);
+    await supabase.from(TABLES.sources).delete().eq('id', sourceId);
     // Trigger to delete file from storage would be handled by DB Trigger or separate call
   }
 
