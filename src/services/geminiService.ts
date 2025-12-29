@@ -50,6 +50,13 @@ export const getEffectiveApiKey = () => {
     return getStoredApiKey();
 };
 
+export const getEffectiveClientApiKey = () => {
+    // Some features (Gemini Live websocket) cannot be proxied and require a real client key.
+    const sysKey = getSystemApiKey();
+    if (sysKey) return sysKey;
+    return getStoredApiKey();
+};
+
 const getClient = () => {
     const apiKey = getEffectiveApiKey();
     if (apiKey === 'PROXY_MODE') {

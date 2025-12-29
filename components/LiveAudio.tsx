@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { Mic, MicOff, X, Activity, Volume2, Save, FileText, CheckCircle, AlertOctagon } from 'lucide-react';
 import { ModelType } from '../types';
-import { getEffectiveApiKey } from '../src/services/geminiService';
+import { getEffectiveClientApiKey } from '../src/services/geminiService';
 
 interface LiveAudioProps {
   isOpen: boolean;
@@ -148,9 +148,9 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
       connectionStartTimeRef.current = Date.now();
 
       // Check for valid key via service
-      const apiKey = getEffectiveApiKey();
+      const apiKey = getEffectiveClientApiKey();
       if (!apiKey) {
-          throw new Error("API Key inválida o no configurada. Usa el menú de configuración.");
+          throw new Error("Live requiere una API Key del cliente (no funciona vía proxy). Abre Configuración (⚙️) y guarda tu key.");
       }
 
       const ai = new GoogleGenAI({ apiKey });
