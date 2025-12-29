@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 declare const Deno: any;
 
-const apiKey = Deno.env.get('GEMINI_API_KEY')!;
+const apiKey = Deno.env.get('GEMINI_API_KEY') || '';
 
 const allowedOrigins = new Set([
   "http://localhost:3000",
@@ -98,6 +98,13 @@ serve(async (req: any) => {
   try {
     const { action, prompt, history, sources, audio } = await req.json();
     const corsHeaders = getCorsHeaders(req);
+
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: 'Missing GEMINI_API_KEY in Edge Function secrets' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
     
     // Construct Prompt
     let fullPrompt = `System: Use the following sources to answer.\n`;
@@ -126,6 +133,10 @@ serve(async (req: any) => {
 
   } catch (error: any) {
     const corsHeaders = getCorsHeaders(req);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const message = error?.message || String(error);
+    return new Response(
+      JSON.stringify({ error: message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
   }
 });

@@ -35,12 +35,15 @@ export class SupabaseAdapter implements StorageAdapter {
     if (!supabase) return;
     const userId = await this.getAuthUserId();
     if (!userId) return;
-    // Align with DB schema: molielm_profiles(user_id, name, created_at, updated_at)
-    const { error } = await supabase.from(TABLES.profiles).upsert({
-      user_id: userId,
-      name: user.name,
-      updated_at: new Date().toISOString(),
-    });
+    const { error } = await supabase
+      .from(TABLES.profiles)
+      .upsert(
+        {
+          user_id: userId,
+          name: user.name,
+        },
+        { onConflict: 'user_id' },
+      );
     if (error) console.error("Supabase Save User Error", error);
 
     // Cache a minimal local profile to keep UI stable
