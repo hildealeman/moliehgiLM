@@ -5,6 +5,21 @@ create table if not exists public.molielm_profiles (
   created_at timestamptz not null default now()
 );
 
+-- If the table already existed but is missing required columns, add them.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'molielm_profiles'
+      AND column_name = 'user_id'
+  ) THEN
+    ALTER TABLE public.molielm_profiles
+      ADD COLUMN user_id uuid references auth.users (id) on delete cascade;
+  END IF;
+END $$;
+
 -- Ensure user_id is unique so PostgREST upsert on_conflict=user_id works
 DO $$
 BEGIN
