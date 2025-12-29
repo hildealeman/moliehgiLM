@@ -1,5 +1,6 @@
 
 import { StorageAdapter } from './StorageAdapter';
+import type { VoiceCalibrationInput } from './StorageAdapter';
 import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../../types';
 import { supabase } from '../../lib/supabase/client';
 
@@ -7,7 +8,8 @@ const TABLES = {
   profiles: 'molielm_profiles',
   projects: 'molielm_projects',
   sources: 'molielm_sources',
-  messages: 'molielm_messages'
+  messages: 'molielm_messages',
+  voiceCalibrations: 'molielm_voice_calibrations'
 } as const;
 
 export class SupabaseAdapter implements StorageAdapter {
@@ -57,6 +59,54 @@ export class SupabaseAdapter implements StorageAdapter {
 
     if (error || !data?.verified) return { verified: false };
     return { verified: true, username: data.username };
+  }
+
+  async saveVoiceCalibration(input: VoiceCalibrationInput): Promise<void> {
+    if (!supabase) return;
+    const userId = await this.getAuthUserId();
+    if (!userId) throw new Error("Supabase auth required");
+
+    let audioPath: string | null = null;
+
+    if (input.audioDataUrl) {
+      const parts = input.audioDataUrl.split(',');
+      if (parts.length >= 2) {
+        const header = parts[0] || '';
+        const mimeMatch = header.match(/data:([^;]+);base64/);
+        const mimeType = mimeMatch?.[1] || 'audio/wav';
+        const b64 = parts[1];
+
+        const byteCharacters = atob(b64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: mimeType });
+
+        const ext = mimeType.split('/')[1] || 'wav';
+        audioPath = `molielm/${userId}/voice_calibrations/${Date.now()}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('molielm-sources')
+          .upload(audioPath, blob, { contentType: mimeType, upsert: false });
+
+        if (uploadError) throw uploadError;
+      }
+    }
+
+    const { error } = await supabase.from(TABLES.voiceCalibrations).insert({
+      user_id: userId,
+      prompt_text: input.promptText,
+      transcript: input.transcript,
+      audio_path: audioPath,
+      duration_ms: input.durationMs,
+      sample_rate: input.sampleRate,
+      rms: input.rms,
+      locale: input.locale,
+    });
+
+    if (error) throw error;
   }
 
   async getProjects(): Promise<Project[]> {

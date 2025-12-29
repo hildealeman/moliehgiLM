@@ -1,11 +1,24 @@
 
-import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../types';
+import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../../types';
+
+export type VoiceCalibrationInput = {
+  promptText: string;
+  transcript: string;
+  audioDataUrl?: string;
+  durationMs?: number;
+  sampleRate?: number;
+  rms?: number;
+  locale?: string;
+};
 
 export interface StorageAdapter {
   // User
   getUser(): UserProfile;
   saveUser(user: UserProfile): Promise<void>;
   verifyVoicePhrase(transcript: string): Promise<{ verified: boolean; username?: string }>;
+
+  // Voice
+  saveVoiceCalibration(input: VoiceCalibrationInput): Promise<void>;
 
   // Projects
   getProjects(): Promise<Project[]>;

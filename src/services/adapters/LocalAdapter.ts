@@ -1,9 +1,10 @@
 
 import { StorageAdapter } from './StorageAdapter';
-import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../types';
+import { Project, Source, ChatMessage, UserProfile, SourceHistoryItem } from '../../../types';
 import { idb } from '../../lib/idb';
 
 const USER_KEY = 'molielm_user';
+const CALIBRATION_KEY = 'molielm_voice_calibration';
 // Basic fallback user
 const DEFAULT_USER: UserProfile = {
   id: 'local_u1',
@@ -30,6 +31,14 @@ export class LocalAdapter implements StorageAdapter {
         return { verified: true, username: 'Investigador Local' };
     }
     return { verified: false };
+  }
+
+  async saveVoiceCalibration(input: any): Promise<void> {
+    try {
+      localStorage.setItem(CALIBRATION_KEY, JSON.stringify({ ...input, savedAt: Date.now() }));
+    } catch {
+      // ignore
+    }
   }
 
   async getProjects(): Promise<Project[]> {

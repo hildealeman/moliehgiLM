@@ -24,10 +24,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
   // Voice confirmation state (shared)
   const [pendingTranscript, setPendingTranscript] = useState<string>("");
   const [pendingAudio, setPendingAudio] = useState<string>("");
+  const [pendingMeta, setPendingMeta] = useState<{ durationMs?: number; sampleRate?: number; rms?: number } | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
 
   // Signup State
-  const [signupStep, setSignupStep] = useState(1); // 1: Creds, 2: Voice
+  const [signupStep, setSignupStep] = useState(1); // 1: Creds, 2: Calibration, 3: Voice
   const [newUsername, setNewUsername] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -51,6 +52,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       setIsProcessing(false);
       setPendingTranscript("");
       setPendingAudio("");
+      setPendingMeta(null);
       if (mode === 'login') {
           setLoginStep('creds');
           setLoginEmail("");
@@ -71,6 +73,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       else setLoginStep('creds');
       setPendingTranscript("");
       setPendingAudio("");
+      setPendingMeta(null);
   }, [stage]);
 
   const requireSupabase = () => {
@@ -160,6 +163,28 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       return `data:audio/wav;base64,${b64}`;
   };
 
+  const convertBlobToWavDataUrlWithMeta = async (blob: Blob): Promise<{ dataUrl: string; durationMs?: number; sampleRate?: number; rms?: number }> => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      const channelData = audioBuffer.getChannelData(0);
+
+      let sumSq = 0;
+      for (let i = 0; i < channelData.length; i++) {
+          const s = channelData[i];
+          sumSq += s * s;
+      }
+      const rms = channelData.length ? Math.sqrt(sumSq / channelData.length) : undefined;
+
+      const wav = encodeWavPcm16(channelData, audioBuffer.sampleRate);
+      const b64 = arrayBufferToBase64(wav);
+      const dataUrl = `data:audio/wav;base64,${b64}`;
+      const durationMs = Number.isFinite(audioBuffer.duration) ? Math.round(audioBuffer.duration * 1000) : undefined;
+      const sampleRate = audioBuffer.sampleRate;
+      try { await ctx.close(); } catch {}
+      return { dataUrl, durationMs, sampleRate, rms };
+  };
+
   const handleSupabaseSignup = async () => {
       requireSupabase();
       if (!signupEmail || !newPassword) {
@@ -173,9 +198,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
           if (error) throw error;
           // With email verification disabled, user should be signed in.
           onAuthed?.();
+          try {
+              await storageService.saveSessionUser(newUsername || signupEmail);
+          } catch {}
           setSignupStep(2);
           setPendingTranscript("");
           setPendingAudio("");
+          setPendingMeta(null);
       } catch (e: any) {
           setError(e.message || "Error al registrar usuario");
       } finally {
@@ -186,6 +215,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
   const resetPendingVoice = () => {
       setPendingTranscript("");
       setPendingAudio("");
+      setPendingMeta(null);
       setError(null);
       try {
           audioElRef.current?.pause();
@@ -215,6 +245,24 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
           }
 
           // signup
+          if (signupStep === 2) {
+              // Mandatory VMV calibration: save a guided reading sample before allowing voice key enrollment.
+              const promptText = "En un lugar de la Mancha, de cuyo nombre no quiero acordarme";
+              await storageService.saveVoiceCalibration({
+                  promptText,
+                  transcript: pendingTranscript,
+                  audioDataUrl: pendingAudio,
+                  durationMs: pendingMeta?.durationMs,
+                  sampleRate: pendingMeta?.sampleRate,
+                  rms: pendingMeta?.rms,
+                  locale: "es-MX",
+              });
+              resetPendingVoice();
+              setSignupStep(3);
+              return;
+          }
+
+          // Voice key enrollment (after calibration)
           setVoicePhrase(pendingTranscript);
           if (supabase) {
               const { error } = await supabase.functions.invoke('voice-enroll', {
@@ -324,14 +372,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                 try {
                     // Gemini audio transcription supports WAV/MP3/AAC/OGG/FLAC; browsers usually record WEBM/MP4.
                     // Convert to WAV for production reliability.
-                    const wavDataUrl = await convertBlobToWavDataUrl(audioBlob);
-                    await processAudio(wavDataUrl);
+                    const { dataUrl, durationMs, sampleRate, rms } = await convertBlobToWavDataUrlWithMeta(audioBlob);
+                    setPendingMeta({ durationMs, sampleRate, rms });
+                    await processAudio(dataUrl);
                 } catch (e: any) {
                     console.error('WAV conversion failed, falling back to original recording', e);
                     const reader = new FileReader();
                     reader.readAsDataURL(audioBlob);
                     reader.onloadend = async () => {
                         const base64Audio = reader.result as string;
+                        setPendingMeta(null);
                         await processAudio(base64Audio);
                     };
                 }
@@ -580,11 +630,18 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                         </div>
                     )}
 
-                    {/* SIGNUP: STEP 2 (VOICE REGISTRATION) */}
+                    {/* SIGNUP: STEP 2 (MANDATORY VMV CALIBRATION) */}
                     {signupStep === 2 && (
                         <div className="flex flex-col items-center animate-fade-in-up">
-                             <h3 className="text-xs font-bold text-neutral-300 uppercase tracking-widest mb-4">Record Security Phrase</h3>
-                             
+                             <h3 className="text-xs font-bold text-neutral-300 uppercase tracking-widest mb-2">VMV Calibration</h3>
+                             <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-3">Lectura guiada (obligatoria)</p>
+
+                             <div className="w-full bg-neutral-950 border border-neutral-800 p-3 mb-4">
+                                 <p className="text-[10px] text-neutral-500 uppercase mb-2">Lee en voz alta este texto:</p>
+                                 <p className="text-sm text-white font-bold leading-relaxed">"En un lugar de la Mancha, de cuyo nombre no quiero acordarme"</p>
+                                 <p className="mt-2 text-[10px] text-neutral-600">Tip: habla claro durante 10–15 segundos.</p>
+                             </div>
+
                              <div className="relative mb-6">
                                 <canvas ref={canvasRef} width={200} height={200} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
                                 <button 
@@ -602,7 +659,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                                      )}
                                 </button>
                              </div>
-                            
+
                             {pendingTranscript ? (
                                 <div className="mb-4 text-center w-full">
                                     <p className="text-[10px] text-neutral-500 uppercase mb-1">Se escuchó:</p>
@@ -613,28 +670,65 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                                         </div>
                                     )}
                                     <div className="flex gap-2">
-                                         <button onClick={resetPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] text-neutral-500 uppercase hover:text-white py-2 border border-neutral-800">Retry</button>
-                                         <button onClick={acceptPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">{isProcessing ? "Processing..." : "Accept"}</button>
-                                    </div>
-                                </div>
-                            ) : voicePhrase ? (
-                                <div className="mb-4 text-center w-full">
-                                    <p className="text-[10px] text-neutral-500 uppercase mb-1">Detected Phrase:</p>
-                                    <div className="bg-blue-900/20 border border-blue-900 p-2 text-blue-300 text-xs font-bold italic mb-4">
-                                        "{voicePhrase}"
-                                    </div>
-                                    <div className="flex gap-2">
-                                         <button onClick={() => setVoicePhrase("")} className="flex-1 text-[10px] text-neutral-500 uppercase hover:text-white py-2 border border-neutral-800">Retry</button>
-                                         <button onClick={() => onVoiceVerified?.()} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">Complete Registration</button>
+                                         <button onClick={resetPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] text-neutral-500 uppercase hover:text-white py-2 border border-neutral-800">Reintentar</button>
+                                         <button onClick={acceptPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">{isProcessing ? "Guardando..." : "Confirmar"}</button>
                                     </div>
                                 </div>
                             ) : (
                                 <p className="text-[10px] text-neutral-500 text-center max-w-xs">
-                                    Hold the button and say a unique phrase (e.g., "Soy el Admin" or "Wake up Neo"). This will be your Voice Key.
+                                    Mantén presionado y lee el texto. Luego confirma la transcripción.
                                 </p>
                             )}
 
                              <button onClick={() => setSignupStep(1)} className="mt-6 text-[10px] text-neutral-600 hover:text-white uppercase">Back</button>
+                        </div>
+                    )}
+
+                    {/* SIGNUP: STEP 3 (VOICE KEY ENROLLMENT) */}
+                    {signupStep === 3 && (
+                        <div className="flex flex-col items-center animate-fade-in-up">
+                             <h3 className="text-xs font-bold text-neutral-300 uppercase tracking-widest mb-2">Voice Key</h3>
+                             <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-3">Frase de seguridad (obligatoria)</p>
+
+                             <div className="relative mb-6">
+                                <canvas ref={canvasRef} width={200} height={200} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+                                <button 
+                                    onMouseDown={startRecording}
+                                    onMouseUp={stopRecording}
+                                    onTouchStart={startRecording}
+                                    onTouchEnd={stopRecording}
+                                    className={`relative w-20 h-20 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isRecording ? 'border-blue-500 bg-blue-500/10 scale-95' : 'border-neutral-800 bg-neutral-900 hover:border-neutral-600'}`}
+                                    disabled={isProcessing}
+                                >
+                                     {isProcessing ? (
+                                         <Loader2 className="animate-spin text-blue-500" size={28} />
+                                     ) : (
+                                         <Mic className={isRecording ? 'text-blue-500' : 'text-neutral-500'} size={28} />
+                                     )}
+                                </button>
+                             </div>
+
+                            {pendingTranscript ? (
+                                <div className="mb-4 text-center w-full">
+                                    <p className="text-[10px] text-neutral-500 uppercase mb-1">Se escuchó:</p>
+                                    <div className="bg-blue-900/20 border border-blue-900 p-2 text-blue-300 text-xs font-bold italic mb-3">"{pendingTranscript}"</div>
+                                    {pendingAudio && (
+                                        <div className="mb-3">
+                                            <audio ref={audioElRef} controls className="w-full" src={pendingAudio} />
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                         <button onClick={resetPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] text-neutral-500 uppercase hover:text-white py-2 border border-neutral-800">Reintentar</button>
+                                         <button onClick={acceptPendingVoice} disabled={isProcessing} className="flex-1 text-[10px] bg-blue-600 text-white font-bold uppercase py-2 hover:bg-blue-500">{isProcessing ? "Enrolling..." : "Aceptar"}</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-[10px] text-neutral-500 text-center max-w-xs">
+                                    Mantén presionado y di una frase única (por ejemplo: "Soy el Admin" o "Wake up Neo").
+                                </p>
+                            )}
+
+                             <button onClick={() => setSignupStep(2)} className="mt-6 text-[10px] text-neutral-600 hover:text-white uppercase">Back</button>
                         </div>
                     )}
                 </>

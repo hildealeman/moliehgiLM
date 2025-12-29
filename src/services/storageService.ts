@@ -1,4 +1,4 @@
-import { Project, UserProfile, Source, ChatMessage, SourceHistoryItem } from '../../types';
+import { Project, UserProfile, Source, ChatMessage, SourceHistoryItem } from '../../../types';
 import { StorageAdapter } from './adapters/StorageAdapter';
 import { LocalAdapter } from './adapters/LocalAdapter';
 import { SupabaseAdapter } from './adapters/SupabaseAdapter';
@@ -61,6 +61,12 @@ export const storageService = {
 
   getUser: (): UserProfile => {
     return adapter.getUser();
+  },
+
+  // --- VOICE ---
+
+  saveVoiceCalibration: async (input: Parameters<StorageAdapter['saveVoiceCalibration']>[0]) => {
+    await adapter.saveVoiceCalibration(input);
   },
 
   // --- PROJECTS ---
