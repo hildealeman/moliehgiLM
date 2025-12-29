@@ -22,6 +22,10 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
   const [hasSaved, setHasSaved] = useState(false);
   
   const sessionRef = useRef<any>(null); 
+  const sessionInstanceRef = useRef<any>(null);
+  const canSendRef = useRef(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const isMutedRef = useRef(false);
   
   // Data Refs for high-frequency updates
   const historyRef = useRef<{role: string, text: string}[]>([]);
@@ -62,6 +66,10 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+
   // Fake volume visualizer
   useEffect(() => {
     if (!isConnected) return;
@@ -72,8 +80,35 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
   }, [isConnected]);
 
   const stopSession = () => {
+    canSendRef.current = false;
+    sessionInstanceRef.current = null;
+
     if (sessionRef.current) {
       // Clean up session if needed
+    }
+
+    if (processorRef.current) {
+      try {
+        processorRef.current.onaudioprocess = null;
+      } catch {}
+      try {
+        processorRef.current.disconnect();
+      } catch {}
+      processorRef.current = null;
+    }
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect();
+      } catch {}
+      sourceNodeRef.current = null;
+    }
+
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      } catch {}
+      streamRef.current = null;
     }
     
     if (inputContextRef.current && inputContextRef.current.state !== 'closed') {
@@ -127,6 +162,7 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
       outputContextRef.current = outputCtx;
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       
       const sessionPromise = ai.live.connect({
         model: ModelType.LIVE,
@@ -135,23 +171,26 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
             console.log("Live session opened");
             setIsConnected(true);
             setError(null);
+
+            // Allow realtime sending only after onopen
+            canSendRef.current = true;
             
             const source = inputCtx.createMediaStreamSource(stream);
             const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
             
             scriptProcessor.onaudioprocess = (e) => {
-              if (isMuted) return; 
-              // IMPORTANT: Check connection before sending to avoid "WebSocket closed" errors
-              // We rely on sessionPromise resolution, but the underlying socket might be closed if error occurred
+              if (isMutedRef.current) return;
+              if (!canSendRef.current) return;
+              const session = sessionInstanceRef.current;
+              if (!session) return;
+
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createBlob(inputData);
-              sessionPromise.then(session => {
-                  try {
-                      session.sendRealtimeInput({ media: pcmBlob });
-                  } catch (e) {
-                      // Socket closed or error, usually handled by onclose/onerror
-                  }
-              });
+              try {
+                session.sendRealtimeInput({ media: pcmBlob });
+              } catch {
+                // Socket closed or error
+              }
             };
             
             source.connect(scriptProcessor);
@@ -231,6 +270,8 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
           onclose: () => {
             console.log("Live session closed");
             setIsConnected(false);
+            canSendRef.current = false;
+            sessionInstanceRef.current = null;
             
             // If session closes very quickly (< 2 seconds), it's likely a 403 or 400 error during handshake
             // The WebSocket close code isn't always exposed by the SDK, so we infer from timing.
@@ -242,6 +283,8 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
           onerror: (e) => {
             console.error("Live session error", e);
             setIsConnected(false);
+            canSendRef.current = false;
+            sessionInstanceRef.current = null;
             setError("Error de conexión. Verifica tu API Key y restricciones.");
           }
         },
@@ -257,6 +300,17 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
       });
       
       sessionRef.current = sessionPromise;
+
+      // Store the resolved session instance (if connect resolves)
+      sessionPromise
+        .then((s: any) => {
+          sessionInstanceRef.current = s;
+        })
+        .catch(() => {
+          // connect failed; onerror/onclose will handle UI state
+          sessionInstanceRef.current = null;
+          canSendRef.current = false;
+        });
 
     } catch (err: any) {
       console.error("Failed to start live session", err);
