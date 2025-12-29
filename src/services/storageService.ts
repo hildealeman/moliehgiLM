@@ -1,4 +1,4 @@
-import { Project, UserProfile, Source, ChatMessage, SourceHistoryItem } from '../../../types';
+import { Project, UserProfile, Source, ChatMessage, SourceHistoryItem } from '../../types';
 import { StorageAdapter } from './adapters/StorageAdapter';
 import { LocalAdapter } from './adapters/LocalAdapter';
 import { SupabaseAdapter } from './adapters/SupabaseAdapter';
@@ -67,6 +67,11 @@ export const storageService = {
 
   saveVoiceCalibration: async (input: Parameters<StorageAdapter['saveVoiceCalibration']>[0]) => {
     await adapter.saveVoiceCalibration(input);
+  },
+
+  enrollUserVoice: async (transcript: string, phraseHint?: string | null): Promise<boolean> => {
+    const result = await adapter.enrollVoicePhrase(transcript, phraseHint ?? null);
+    return !!result.ok;
   },
 
   // --- PROJECTS ---

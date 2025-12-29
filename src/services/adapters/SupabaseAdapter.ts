@@ -64,6 +64,17 @@ export class SupabaseAdapter implements StorageAdapter {
     return { verified: true, username: data.username };
   }
 
+  async enrollVoicePhrase(transcript: string, phraseHint?: string | null): Promise<{ ok: boolean }> {
+    if (!supabase) return { ok: false };
+
+    const { data, error } = await supabase.functions.invoke('voice-enroll', {
+      body: { transcript, phrase_hint: phraseHint ?? null }
+    });
+
+    if (error || !data?.ok) return { ok: false };
+    return { ok: true };
+  }
+
   async saveVoiceCalibration(input: VoiceCalibrationInput): Promise<void> {
     if (!supabase) return;
     const userId = await this.getAuthUserId();

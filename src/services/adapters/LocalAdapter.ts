@@ -41,6 +41,17 @@ export class LocalAdapter implements StorageAdapter {
     }
   }
 
+  async enrollVoicePhrase(transcript: string, phraseHint?: string | null): Promise<{ ok: boolean }> {
+    const t = String(transcript || '').trim();
+    if (!t) return { ok: false };
+    try {
+      localStorage.setItem('molielm_voice_phrase_hint', String(phraseHint ?? ''));
+    } catch {
+      // ignore
+    }
+    return { ok: true };
+  }
+
   async getProjects(): Promise<Project[]> {
     // Fallback migration from localStorage if IDB is empty could go here
     return idb.getAll<Project>('projects');

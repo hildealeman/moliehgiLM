@@ -19,6 +19,7 @@ interface SidebarProps {
   onToggleMirror: () => void;
   onMobileClose?: () => void;
   onOpenSettings: () => void;
+  onOpenVoiceAuth: () => void;
   onLogout: () => void;
   onUpdateUser: (user: UserProfile) => void;
 }
@@ -39,6 +40,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onToggleMirror,
   onMobileClose,
   onOpenSettings,
+  onOpenVoiceAuth,
   onLogout,
   onUpdateUser
 }) => {
@@ -484,6 +486,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                 title="Modo Espejo (Split View)"
               >
                   <Columns size={16} />
+              </button>
+              <button 
+                  onClick={onOpenVoiceAuth}
+                  className="p-2 rounded transition-colors text-neutral-500 hover:text-white hover:bg-neutral-800"
+                  title="Voice Auth"
+              >
+                  <Phone size={16} />
               </button>
               <button 
                   onClick={onOpenSettings}

@@ -4,6 +4,7 @@ import ChatArea from './components/ChatArea';
 import LiveAudio from './components/LiveAudio';
 import ApiKeyModal from './components/ApiKeyModal';
 import LoginScreen from './components/LoginScreen';
+import VoiceAuthModal from './components/VoiceAuthModal';
 import { Source, ChatMessage, SourceHistoryItem, Project, UserProfile } from './types';
 import { storageService } from './src/services/storageService';
 import { getEffectiveApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMultimodal } from './src/services/geminiService';
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   
   const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [showVoiceAuthModal, setShowVoiceAuthModal] = useState(false);
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
 
@@ -288,6 +290,12 @@ const App: React.FC = () => {
     }).join('\n\n')}`;
   };
 
+  let enableVoiceAuth = false;
+  try {
+      // @ts-ignore
+      enableVoiceAuth = !!(import.meta && import.meta.env && import.meta.env.VITE_ENABLE_VOICE_AUTH === 'true');
+  } catch {}
+
   // Gate 1: Supabase Auth session (required for Cloud Mode)
   if (supabase && !hasSupabaseSession) {
       return (
@@ -334,6 +342,13 @@ const App: React.FC = () => {
           onToggleMirror={() => setIsMirrorMode(!isMirrorMode)}
           onMobileClose={() => setIsSidebarOpen(false)}
           onOpenSettings={() => setShowApiKeyModal(true)}
+          onOpenVoiceAuth={() => {
+            if (!enableVoiceAuth) {
+              alert('Voice Auth está desactivado. Configura VITE_ENABLE_VOICE_AUTH=true');
+              return;
+            }
+            setShowVoiceAuthModal(true);
+          }}
           onLogout={handleLogout}
           onUpdateUser={handleUpdateUser}
         />
@@ -394,6 +409,11 @@ const App: React.FC = () => {
           onClose={() => setShowApiKeyModal(false)}
           onSave={handleSaveApiKey}
           hasSystemKey={!!getSystemApiKey()}
+      />
+
+      <VoiceAuthModal
+          isOpen={showVoiceAuthModal}
+          onClose={() => setShowVoiceAuthModal(false)}
       />
     </div>
   );

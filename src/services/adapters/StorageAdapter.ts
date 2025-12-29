@@ -19,6 +19,7 @@ export interface StorageAdapter {
 
   // Voice
   saveVoiceCalibration(input: VoiceCalibrationInput): Promise<void>;
+  enrollVoicePhrase(transcript: string, phraseHint?: string | null): Promise<{ ok: boolean }>;
 
   // Projects
   getProjects(): Promise<Project[]>;
