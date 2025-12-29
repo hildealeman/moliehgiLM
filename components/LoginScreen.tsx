@@ -99,6 +99,67 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       }
   };
 
+  const encodeWavPcm16 = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+
+      const writeString = (offset: number, str: string) => {
+          for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+
+      // RIFF header
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(8, 'WAVE');
+
+      // fmt chunk
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true); // PCM
+      view.setUint16(20, 1, true); // audio format = PCM
+      view.setUint16(22, 1, true); // channels = mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true); // byte rate
+      view.setUint16(32, 2, true); // block align
+      view.setUint16(34, 16, true); // bits per sample
+
+      // data chunk
+      writeString(36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++) {
+          let s = samples[i];
+          if (s > 1) s = 1;
+          if (s < -1) s = -1;
+          const int16 = s < 0 ? s * 0x8000 : s * 0x7fff;
+          view.setInt16(offset, int16, true);
+          offset += 2;
+      }
+
+      return buffer;
+  };
+
+  const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+  };
+
+  const convertBlobToWavDataUrl = async (blob: Blob): Promise<string> => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      const channelData = audioBuffer.getChannelData(0);
+      const wav = encodeWavPcm16(channelData, audioBuffer.sampleRate);
+      const b64 = arrayBufferToBase64(wav);
+      try { await ctx.close(); } catch {}
+      return `data:audio/wav;base64,${b64}`;
+  };
+
   const handleSupabaseSignup = async () => {
       requireSupabase();
       if (!signupEmail || !newPassword) {
@@ -260,12 +321,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                     return;
                 }
 
-                const reader = new FileReader();
-                reader.readAsDataURL(audioBlob);
-                reader.onloadend = async () => {
-                    const base64Audio = reader.result as string;
-                    await processAudio(base64Audio);
-                };
+                try {
+                    // Gemini audio transcription supports WAV/MP3/AAC/OGG/FLAC; browsers usually record WEBM/MP4.
+                    // Convert to WAV for production reliability.
+                    const wavDataUrl = await convertBlobToWavDataUrl(audioBlob);
+                    await processAudio(wavDataUrl);
+                } catch (e: any) {
+                    console.error('WAV conversion failed, falling back to original recording', e);
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = async () => {
+                        const base64Audio = reader.result as string;
+                        await processAudio(base64Audio);
+                    };
+                }
             }, 100);
             
             stream.getTracks().forEach(track => track.stop());
