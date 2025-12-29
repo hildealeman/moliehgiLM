@@ -194,19 +194,34 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
       setIsProcessing(true);
       setError(null);
       try {
-          const { error } = await supabase!.auth.signUp({ email: signupEmail, password: newPassword });
+          const { data, error } = await supabase!.auth.signUp({ email: signupEmail, password: newPassword });
           if (error) throw error;
-          // With email verification disabled, user should be signed in.
+
+          // If email confirmations are enabled, Supabase won't create a session immediately.
+          if (!data?.session) {
+              setError("Cuenta creada, pero falta confirmar el email. Revisa tu correo y luego haz Login.");
+              return;
+          }
+
           onAuthed?.();
+
           try {
               await storageService.saveSessionUser(newUsername || signupEmail);
-          } catch {}
+          } catch (e: any) {
+              const msg = e?.message || "Error al guardar perfil";
+              const details = e?.details || e?.hint || e?.code || "";
+              setError(details ? `${msg} (${details})` : msg);
+              return;
+          }
+
           setSignupStep(2);
           setPendingTranscript("");
           setPendingAudio("");
           setPendingMeta(null);
       } catch (e: any) {
-          setError(e.message || "Error al registrar usuario");
+          const msg = e?.message || "Error al registrar usuario";
+          const details = e?.details || e?.hint || e?.code || "";
+          setError(details ? `${msg} (${details})` : msg);
       } finally {
           setIsProcessing(false);
       }
@@ -336,12 +351,15 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         startVisualizer(stream);
 
-        // Try standard webm first
-        let mimeType = 'audio/webm'; 
-        if (!MediaRecorder.isTypeSupported('audio/webm')) {
-            // Fallback for Safari/iOS
-            mimeType = 'audio/mp4'; 
-            if (!MediaRecorder.isTypeSupported('audio/mp4')) {
+        // Prefer Opus in WebM when possible (best chance of decoding + WAV conversion)
+        let mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/webm';
+        }
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            // Safari/iOS fallback
+            mimeType = 'audio/mp4';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
                 throw new Error("Formato de audio no soportado en este navegador.");
             }
         }
@@ -376,14 +394,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ stage = 'legacy', onAuthed, o
                     setPendingMeta({ durationMs, sampleRate, rms });
                     await processAudio(dataUrl);
                 } catch (e: any) {
-                    console.error('WAV conversion failed, falling back to original recording', e);
-                    const reader = new FileReader();
-                    reader.readAsDataURL(audioBlob);
-                    reader.onloadend = async () => {
-                        const base64Audio = reader.result as string;
-                        setPendingMeta(null);
-                        await processAudio(base64Audio);
-                    };
+                    console.error('WAV conversion failed', e);
+                    setPendingMeta(null);
+                    setError("No se pudo convertir el audio a WAV (necesario para transcripción). Intenta en Chrome/Edge o revisa permisos de micrófono.");
+                    return;
                 }
             }, 100);
             
