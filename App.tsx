@@ -157,8 +157,85 @@ const App: React.FC = () => {
       await storageService.updateUserProfile(updatedUser);
   };
 
+  const buildAutoSummaryMarkdown = (source: Source, text: string, isPreliminary: boolean): string => {
+      const raw = String(text || "").replace(/\r/g, "").trim();
+      const title = source.title || "Fuente";
+      const kind = source.type === 'text' ? 'Texto' : (source.type === 'image' ? 'Imagen' : 'Archivo');
+      const words = raw ? raw.split(/\s+/).filter(Boolean).length : 0;
+
+      if (!raw) {
+          return `### Resumen automático\n\n**Fuente:** \`${title}\`\n\nNo hay texto disponible para resumir.`;
+      }
+
+      const lines = raw
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      const firstParagraph = raw.split(/\n\n+/)[0]?.trim() || raw.slice(0, 800);
+      const tldr = firstParagraph.replace(/\s+/g, ' ').slice(0, 320);
+
+      const keyPoints = lines
+        .filter(l => l.length >= 30)
+        .slice(0, 6)
+        .map(l => l.length > 160 ? `${l.slice(0, 157)}...` : l);
+
+      const questions = [
+        "¿Cuáles son los conceptos principales?",
+        "¿Qué decisiones o conclusiones sugiere?",
+        "¿Qué datos o evidencias incluye?",
+      ];
+
+      const headerLine = isPreliminary
+        ? "### Resumen automático (preliminar)"
+        : "### Resumen automático";
+
+      const meta = `**Fuente:** \`${title}\`  \n**Tipo:** ${kind}  \n**Longitud:** ~${words.toLocaleString()} palabras`;
+
+      const bullets = keyPoints.length
+        ? keyPoints.map(p => `- ${p}`).join("\n")
+        : "- (No se detectaron líneas con contenido suficiente para extraer puntos clave)";
+
+      const qBullets = questions.map(q => `- ${q}`).join("\n");
+
+      return [
+        headerLine,
+        "",
+        meta,
+        "",
+        "#### TL;DR",
+        `> ${tldr}`,
+        "",
+        "#### Puntos clave",
+        bullets,
+        "",
+        "#### Preguntas sugeridas",
+        qBullets,
+      ].join("\n");
+  };
+
+  const upsertChatMessage = (msg: ChatMessage) => {
+      setChatHistory(prev => {
+          const idx = prev.findIndex(m => m.id === msg.id);
+          if (idx === -1) return [...prev, msg];
+          const copy = prev.slice();
+          copy[idx] = { ...copy[idx], ...msg };
+          return copy;
+      });
+  };
+
   const addSource = async (source: Source) => {
     setSources(prev => [...prev, source]);
+
+    const summaryId = `source-summary-${source.id}`;
+    const immediateText = source.type === 'text' ? (source.content || "") : (source.extractedText || "");
+    const isPreliminary = source.type !== 'text' && !source.extractedText;
+    const summary = buildAutoSummaryMarkdown(source, immediateText, isPreliminary);
+    upsertChatMessage({
+        id: summaryId,
+        role: 'model',
+        text: summary,
+    });
     
     // ... [Calculations for History Item] ...
     // Note: In Cloud mode, we might want to upload first, but for optimistic UI we update state immediately
@@ -169,6 +246,13 @@ const App: React.FC = () => {
         extractTextFromMultimodal(source).then(extracted => {
             if (extracted) {
                 setSources(prev => prev.map(s => s.id === source.id ? { ...s, extractedText: extracted } : s));
+
+                const finalSummary = buildAutoSummaryMarkdown(source, extracted, false);
+                upsertChatMessage({
+                    id: summaryId,
+                    role: 'model',
+                    text: finalSummary,
+                });
             }
         });
     }
