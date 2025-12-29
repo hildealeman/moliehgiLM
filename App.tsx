@@ -10,20 +10,6 @@ import { getEffectiveApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMu
 import { supabase } from './src/lib/supabase/client';
 import { Menu } from 'lucide-react';
 
-// Helper to safely access env vars
-const getEnvVar = (key: string): string => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // @ts-ignore
-      return import.meta.env[key] || '';
-    }
-  } catch (e) {
-    // Silent fail
-  }
-  return '';
-};
-
 const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile>(storageService.getUser());
   const [projects, setProjects] = useState<Project[]>([]);
@@ -38,13 +24,7 @@ const App: React.FC = () => {
   const [isMirrorMode, setIsMirrorMode] = useState(false);
   
   const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
-  const [isVoiceGated, setIsVoiceGated] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-
-  const disableVoiceAuth = (() => {
-    const v = getEnvVar('VITE_DISABLE_VOICE_AUTH');
-    return v === '1' || v.toLowerCase() === 'true' || v.toLowerCase() === 'yes';
-  })();
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
 
@@ -59,11 +39,8 @@ const App: React.FC = () => {
         if (supabase) {
             const { data } = await supabase.auth.getSession();
             setHasSupabaseSession(!!data.session);
-            if (data.session && disableVoiceAuth) setIsVoiceGated(true);
             const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
                 setHasSupabaseSession(!!session);
-                if (!session) setIsVoiceGated(false);
-                if (session && disableVoiceAuth) setIsVoiceGated(true);
             });
             // Avoid leaking listener
             // @ts-ignore
@@ -173,7 +150,6 @@ const App: React.FC = () => {
           }
       } catch {}
       setHasSupabaseSession(false);
-      setIsVoiceGated(false);
   };
 
   const handleUpdateUser = async (updatedUser: UserProfile) => {
@@ -236,35 +212,6 @@ const App: React.FC = () => {
                 stage="supabase" 
                 onAuthed={() => {
                     setHasSupabaseSession(true);
-                }}
-                onVoiceVerified={() => {
-                    setIsVoiceGated(true);
-                    setUser(storageService.getUser());
-                }}
-                onOpenSettings={() => setShowApiKeyModal(true)} 
-            />
-            <ApiKeyModal 
-                isOpen={showApiKeyModal} 
-                onClose={() => setShowApiKeyModal(false)}
-                onSave={handleSaveApiKey}
-                hasSystemKey={!!getSystemApiKey()}
-            />
-          </>
-      );
-  }
-
-  // Gate 2: Voice gate (additional)
-  if (!disableVoiceAuth && !isVoiceGated) {
-      return (
-          <>
-            <LoginScreen 
-                stage={supabase ? "voice" : "legacy"}
-                onAuthed={() => {
-                    setHasSupabaseSession(true);
-                }}
-                onVoiceVerified={() => {
-                    setIsVoiceGated(true);
-                    setUser(storageService.getUser());
                 }}
                 onOpenSettings={() => setShowApiKeyModal(true)} 
             />
