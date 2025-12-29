@@ -5,6 +5,23 @@ declare const Deno: any;
 
 const apiKey = Deno.env.get('GEMINI_API_KEY') || '';
 
+const pickModels = (primary: string | undefined, fallbacks: string[]) => {
+  const list = [] as string[];
+  const p = String(primary || '').trim();
+  if (p) list.push(p);
+  for (const m of fallbacks) {
+    if (!list.includes(m)) list.push(m);
+  }
+  return list;
+};
+
+const DEFAULT_MODEL_FALLBACKS = [
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.5-flash-lite-preview",
+];
+
 const allowedOrigins = new Set([
   "http://localhost:3000",
   "http://localhost:3002",
@@ -25,23 +42,36 @@ const getCorsHeaders = (req: Request) => {
 };
 
 const geminiGenerateContent = async (prompt: string) => {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const primaryModel = Deno.env.get("GEMINI_MODEL") || "";
+  const models = pickModels(primaryModel, DEFAULT_MODEL_FALLBACKS);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    }),
-  });
+  let lastErr: Error | null = null;
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gemini REST error ${res.status}: ${text}`);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const err = new Error(`Gemini REST error ${res.status}: ${text}`);
+      lastErr = err;
+      // Model not found / not supported: try next
+      if (res.status === 404) continue;
+      throw err;
+    }
+
+    const json = await res.json();
+    const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("") || "";
+    return text;
   }
-  const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("") || "";
-  return text;
+
+  throw lastErr || new Error("Gemini REST error: no supported model found");
 };
 
 const parseDataUrl = (dataUrl: string): { mimeType: string; data: string } => {
@@ -56,38 +86,50 @@ const parseDataUrl = (dataUrl: string): { mimeType: string; data: string } => {
 
 const geminiTranscribe = async (dataUrl: string): Promise<string> => {
   const { mimeType, data } = parseDataUrl(dataUrl);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const primaryModel = Deno.env.get("GEMINI_TRANSCRIBE_MODEL") || Deno.env.get("GEMINI_MODEL") || "";
+  const models = pickModels(primaryModel, DEFAULT_MODEL_FALLBACKS);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data,
+  let lastErr: Error | null = null;
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data,
+                },
               },
-            },
-            {
-              text: "Transcribe EXACTLY what is said in this audio. Output only the raw transcript in Spanish if applicable. Do not add punctuation unless clearly spoken.",
-            },
-          ],
-        },
-      ],
-    }),
-  });
+              {
+                text: "Transcribe EXACTLY what is said in this audio. Output only the raw transcript in Spanish if applicable. Do not add punctuation unless clearly spoken.",
+              },
+            ],
+          },
+        ],
+      }),
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gemini REST error ${res.status}: ${text}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const err = new Error(`Gemini REST error ${res.status}: ${text}`);
+      lastErr = err;
+      if (res.status === 404) continue;
+      throw err;
+    }
+
+    const json = await res.json();
+    const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("") || "";
+    return text;
   }
-  const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("") || "";
-  return text;
+
+  throw lastErr || new Error("Gemini REST error: no supported model found");
 };
 
 serve(async (req: any) => {
