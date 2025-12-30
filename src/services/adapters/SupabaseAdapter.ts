@@ -12,6 +12,10 @@ const TABLES = {
   voiceCalibrations: 'molielm_voice_calibrations'
 } as const;
 
+const isUuid = (value: string): boolean => {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+};
+
 export class SupabaseAdapter implements StorageAdapter {
   private async getAuthUserId(): Promise<string | null> {
     if (!supabase) return null;
@@ -171,6 +175,10 @@ export class SupabaseAdapter implements StorageAdapter {
     if (!supabase) return;
     const userId = await this.getAuthUserId();
     if (!userId) return;
+
+    if (!isUuid(String(project.id))) {
+      throw new Error(`Invalid project.id for Supabase mode: ${String(project.id)}`);
+    }
     
     const nowIso = new Date().toISOString();
 
@@ -233,11 +241,16 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async deleteProject(id: string): Promise<void> {
     if (!supabase) return;
+    if (!isUuid(String(id))) throw new Error(`Invalid project id for Supabase mode: ${String(id)}`);
     await supabase.from(TABLES.projects).delete().eq('id', id);
   }
 
   async addSource(projectId: string, source: Source): Promise<Source> {
     if (!supabase) throw new Error("Supabase client not initialized");
+
+    if (!isUuid(String(projectId))) {
+      throw new Error(`Invalid project id for Supabase mode: ${String(projectId)}`);
+    }
 
     const userId = await this.getAuthUserId();
     if (!userId) throw new Error("Supabase auth required");
@@ -292,12 +305,14 @@ export class SupabaseAdapter implements StorageAdapter {
 
   async removeSource(projectId: string, sourceId: string): Promise<void> {
     if (!supabase) return;
+    if (!isUuid(String(projectId))) throw new Error(`Invalid project id for Supabase mode: ${String(projectId)}`);
     await supabase.from(TABLES.sources).delete().eq('id', sourceId);
     // Trigger to delete file from storage would be handled by DB Trigger or separate call
   }
 
   async saveChatHistory(projectId: string, history: ChatMessage[]): Promise<void> {
     if (!supabase) return;
+    if (!isUuid(String(projectId))) throw new Error(`Invalid project id for Supabase mode: ${String(projectId)}`);
     const userId = await this.getAuthUserId();
     if (!userId) return;
 
