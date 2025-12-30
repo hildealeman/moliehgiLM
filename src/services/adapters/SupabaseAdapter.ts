@@ -135,6 +135,8 @@ export class SupabaseAdapter implements StorageAdapter {
       .from(TABLES.projects)
       .select(`*, ${TABLES.sources}(*), ${TABLES.messages}(*)`) // Naive fetch for demo; usually pagination needed
       .eq('user_id', userId)
+      // @ts-ignore
+      .order('created_at', { foreignTable: TABLES.messages, ascending: true })
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -212,30 +214,6 @@ export class SupabaseAdapter implements StorageAdapter {
       }
     } catch (e) {
       console.error("Supabase Save Sources Exception", e);
-    }
-
-    // Upsert Messages
-    try {
-      const messagesPayload = (project.chatHistory || []).map((m) => ({
-        id: m.id,
-        project_id: project.id,
-        user_id: userId,
-        role: m.role,
-        text: m.text,
-        is_thinking: m.isThinking ?? null,
-        images: m.images ?? null,
-        audio_data: m.audioData ?? null,
-        sources: m.sources ?? null,
-        evidence: m.evidence ?? null,
-        reasoning: m.reasoning ?? null,
-        created_at: nowIso,
-      }));
-      if (messagesPayload.length > 0) {
-        const { error: mErr } = await supabase.from(TABLES.messages).upsert(messagesPayload);
-        if (mErr) console.error("Supabase Save Messages Error", mErr);
-      }
-    } catch (e) {
-      console.error("Supabase Save Messages Exception", e);
     }
   }
 

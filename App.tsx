@@ -36,6 +36,7 @@ const App: React.FC = () => {
   const [showVoiceAuthModal, setShowVoiceAuthModal] = useState(false);
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
+  const chatSaveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     try {
@@ -161,6 +162,37 @@ const App: React.FC = () => {
     storageService.saveProject(updatedProject);
     setProjects(prev => prev.map(p => p.id === activeProjectId ? updatedProject : p));
   }, [sources, chatHistory, sourceHistory, activeProjectId]);
+
+  // Persist chat history per-project in Supabase mode (debounced)
+  useEffect(() => {
+    if (!activeProjectId) return;
+
+    let isSupabase = false;
+    try {
+      // @ts-ignore
+      isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
+    } catch {}
+    if (!isSupabase) return;
+    if (!isUuid(String(activeProjectId))) return;
+
+    if (chatSaveTimerRef.current) {
+      window.clearTimeout(chatSaveTimerRef.current);
+      chatSaveTimerRef.current = null;
+    }
+
+    chatSaveTimerRef.current = window.setTimeout(() => {
+      try {
+        storageService.saveChatHistory(activeProjectId, chatHistory);
+      } catch {}
+    }, 800);
+
+    return () => {
+      if (chatSaveTimerRef.current) {
+        window.clearTimeout(chatSaveTimerRef.current);
+        chatSaveTimerRef.current = null;
+      }
+    };
+  }, [chatHistory, activeProjectId]);
 
   const loadProject = (project: Project) => {
       try {
