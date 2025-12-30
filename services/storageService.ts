@@ -68,7 +68,7 @@ export const storageService = {
           ...current,
           name: username,
           // Only update ID if it's a new session for a different user logic, otherwise keep stable
-          id: current.name !== username ? `u_${username.replace(/\s/g, '_')}_${Date.now()}` : current.id
+          id: current.name !== username ? crypto.randomUUID() : current.id
       };
       localStorage.setItem(USER_KEY, JSON.stringify(updated));
   },
@@ -201,7 +201,7 @@ export const storageService = {
 
   createProject: (name: string): Project => {
     const newProject: Project = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: name,
       createdAt: Date.now(),
       updatedAt: Date.now(),
