@@ -147,7 +147,7 @@ export class SupabaseAdapter implements StorageAdapter {
         sources: (p[TABLES.sources] || []).map((s: any) => ({
             id: s.id,
             title: s.title,
-            content: s.content_preview || "", // Full content might be fetched on demand
+            content: s.content_text || s.content_preview || "",
             type: s.type,
             mimeType: s.mime_type,
             extractedText: s.extracted_text
@@ -157,8 +157,11 @@ export class SupabaseAdapter implements StorageAdapter {
             role: m.role,
             text: m.text,
             isThinking: m.is_thinking,
-            evidence: m.evidence,
-            reasoning: m.reasoning
+            images: m.images || undefined,
+            audioData: m.audio_data || undefined,
+            sources: m.sources || undefined,
+            evidence: m.evidence || undefined,
+            reasoning: m.reasoning || undefined
         })),
         sourceHistory: [] // To be implemented in DB if needed
     }));
@@ -169,17 +172,63 @@ export class SupabaseAdapter implements StorageAdapter {
     const userId = await this.getAuthUserId();
     if (!userId) return;
     
+    const nowIso = new Date().toISOString();
+
     // Upsert Project
     const { error } = await supabase.from(TABLES.projects).upsert({
         id: project.id,
         user_id: userId,
         name: project.name,
-        updated_at: new Date().toISOString()
+        updated_at: nowIso
     });
 
-    // Note: In Cloud mode, we typically save messages/sources individually, 
-    // not the whole blob. This implementation is simplified for the Adapter.
     if (error) console.error("Supabase Save Project Error", error);
+
+    // Upsert Sources
+    try {
+      const sourcesPayload = (project.sources || []).map((s) => ({
+        id: s.id,
+        project_id: project.id,
+        user_id: userId,
+        title: s.title,
+        type: s.type,
+        mime_type: s.mimeType ?? null,
+        storage_path: null,
+        content_text: s.type === 'text' ? s.content : null,
+        content_preview: (s.content || '').slice(0, 1000),
+        extracted_text: s.extractedText ?? null,
+      }));
+      if (sourcesPayload.length > 0) {
+        const { error: sErr } = await supabase.from(TABLES.sources).upsert(sourcesPayload);
+        if (sErr) console.error("Supabase Save Sources Error", sErr);
+      }
+    } catch (e) {
+      console.error("Supabase Save Sources Exception", e);
+    }
+
+    // Upsert Messages
+    try {
+      const messagesPayload = (project.chatHistory || []).map((m) => ({
+        id: m.id,
+        project_id: project.id,
+        user_id: userId,
+        role: m.role,
+        text: m.text,
+        is_thinking: m.isThinking ?? null,
+        images: m.images ?? null,
+        audio_data: m.audioData ?? null,
+        sources: m.sources ?? null,
+        evidence: m.evidence ?? null,
+        reasoning: m.reasoning ?? null,
+        created_at: nowIso,
+      }));
+      if (messagesPayload.length > 0) {
+        const { error: mErr } = await supabase.from(TABLES.messages).upsert(messagesPayload);
+        if (mErr) console.error("Supabase Save Messages Error", mErr);
+      }
+    } catch (e) {
+      console.error("Supabase Save Messages Exception", e);
+    }
   }
 
   async deleteProject(id: string): Promise<void> {
@@ -194,7 +243,8 @@ export class SupabaseAdapter implements StorageAdapter {
     if (!userId) throw new Error("Supabase auth required");
 
     let storagePath = null;
-    let contentPreview = source.content.substring(0, 1000); // Store snippets in DB
+    let contentPreview = source.content.substring(0, 1000);
+    const contentText = source.type === 'text' ? source.content : null;
 
     // 1. Upload File if binary
     if (source.type !== 'text') {
@@ -228,6 +278,7 @@ export class SupabaseAdapter implements StorageAdapter {
         type: source.type,
         mime_type: source.mimeType,
         storage_path: storagePath,
+        content_text: contentText,
         content_preview: contentPreview,
         extracted_text: source.extractedText
     }).select().single();
@@ -245,10 +296,40 @@ export class SupabaseAdapter implements StorageAdapter {
   }
 
   async saveChatHistory(projectId: string, history: ChatMessage[]): Promise<void> {
-    // In a real implementation, we would diff and insert new messages.
-    // For this adapter, we assume the calling code saves the Project which saves state.
-    // But ideally:
-    // await supabase.from('messages').insert(newMessages);
+    if (!supabase) return;
+    const userId = await this.getAuthUserId();
+    if (!userId) return;
+
+    // Replace all messages for project (simple, deterministic)
+    try {
+      const { error: delErr } = await supabase
+        .from(TABLES.messages)
+        .delete()
+        .eq('project_id', projectId)
+        .eq('user_id', userId);
+      if (delErr) console.error("Supabase Clear Messages Error", delErr);
+
+      const payload = (history || []).map((m) => ({
+        id: m.id,
+        project_id: projectId,
+        user_id: userId,
+        role: m.role,
+        text: m.text,
+        is_thinking: m.isThinking ?? null,
+        images: m.images ?? null,
+        audio_data: m.audioData ?? null,
+        sources: m.sources ?? null,
+        evidence: m.evidence ?? null,
+        reasoning: m.reasoning ?? null,
+      }));
+
+      if (payload.length > 0) {
+        const { error: insErr } = await supabase.from(TABLES.messages).insert(payload);
+        if (insErr) console.error("Supabase Insert Messages Error", insErr);
+      }
+    } catch (e) {
+      console.error("Supabase saveChatHistory exception", e);
+    }
   }
 
   async saveSourceHistory(projectId: string, history: SourceHistoryItem[]): Promise<void> {

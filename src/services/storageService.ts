@@ -103,5 +103,21 @@ export const storageService = {
   deleteProject: async (id: string): Promise<Project[]> => {
     await adapter.deleteProject(id);
     return await adapter.getProjects();
-  }
+  },
+
+  addSource: async (projectId: string, source: Source): Promise<Source> => {
+    return await adapter.addSource(projectId, source);
+  },
+
+  removeSource: async (projectId: string, sourceId: string): Promise<void> => {
+    await adapter.removeSource(projectId, sourceId);
+  },
+
+  saveChatHistory: async (projectId: string, history: ChatMessage[]): Promise<void> => {
+    await adapter.saveChatHistory(projectId, history);
+  },
+
+  saveSourceHistory: async (projectId: string, history: SourceHistoryItem[]): Promise<void> => {
+    await adapter.saveSourceHistory(projectId, history);
+  },
 };

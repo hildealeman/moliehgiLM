@@ -85,6 +85,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
       return root;
   };
 
+  const markdownComponents: any = {
+      h1: (props: any) => <h1 className="text-lg md:text-xl font-extrabold tracking-tight text-white mb-3" {...props} />,
+      h2: (props: any) => <h2 className="text-base md:text-lg font-bold tracking-tight text-white mt-5 mb-2" {...props} />,
+      h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-white mt-4 mb-2" {...props} />,
+      h4: (props: any) => <h4 className="text-xs md:text-sm font-bold text-neutral-200 mt-3 mb-2 uppercase tracking-wider" {...props} />,
+      p: (props: any) => <p className="text-xs md:text-sm leading-relaxed text-neutral-200 mb-3" {...props} />,
+      ul: (props: any) => <ul className="text-xs md:text-sm list-disc pl-5 space-y-1 mb-3" {...props} />,
+      ol: (props: any) => <ol className="text-xs md:text-sm list-decimal pl-5 space-y-1 mb-3" {...props} />,
+      li: (props: any) => <li className="text-neutral-200" {...props} />,
+      blockquote: (props: any) => <blockquote className="border-l-2 border-orange-500/70 pl-3 py-1 my-3 text-neutral-300 bg-black/20" {...props} />,
+      strong: (props: any) => <strong className="text-white font-bold" {...props} />,
+      em: (props: any) => <em className="text-neutral-100" {...props} />,
+      code: (props: any) => <code className="bg-black/40 border border-neutral-800 px-1 py-0.5 rounded text-[11px] md:text-xs" {...props} />,
+      pre: (props: any) => <pre className="bg-black/60 border border-neutral-800 p-3 rounded overflow-x-auto text-[11px] md:text-xs my-3" {...props} />,
+      hr: () => <div className="my-4 border-t border-neutral-800" />,
+      a: (props: any) => <a className="text-orange-400 hover:text-orange-300 underline" target="_blank" rel="noreferrer" {...props} />,
+  };
+
   const mindMapToSvgDataUrl = (tree: MindMapNode): string => {
       const nodes: Array<{ node: MindMapNode; x: number; y: number }> = [];
       const edges: Array<{ fromId: string; toId: string }> = [];
@@ -1102,8 +1120,8 @@ Reglas:
                     </div>
                 )}
 
-                <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed font-sans">
-                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                <div className="max-w-none font-sans">
+                    <ReactMarkdown components={markdownComponents}>{msg.text}</ReactMarkdown>
                 </div>
 
                 {msg.sources && msg.sources.length > 0 && (

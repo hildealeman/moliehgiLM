@@ -39,8 +39,26 @@ const App: React.FC = () => {
     const loadData = async () => {
         // Track Supabase session state (required for Cloud mode with RLS)
         if (supabase) {
-            const { data } = await supabase.auth.getSession();
-            setHasSupabaseSession(!!data.session);
+            try {
+                const { data, error } = await supabase.auth.getSession();
+                if (error) {
+                    const msg = String((error as any)?.message || error);
+                    if (msg.toLowerCase().includes('refresh token') || msg.toLowerCase().includes('invalid refresh')) {
+                        try {
+                            await supabase.auth.signOut();
+                        } catch {}
+                        try {
+                            for (const k of Object.keys(localStorage)) {
+                                if (k.startsWith('sb-')) localStorage.removeItem(k);
+                            }
+                        } catch {}
+                        setHasSupabaseSession(false);
+                    }
+                }
+                setHasSupabaseSession(!!data?.session);
+            } catch {
+                setHasSupabaseSession(false);
+            }
             const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
                 setHasSupabaseSession(!!session);
             });
@@ -227,12 +245,21 @@ const App: React.FC = () => {
   };
 
   const addSource = async (source: Source) => {
-    setSources(prev => [...prev, source]);
+    let persisted: Source = source;
+    try {
+        if (activeProjectId) {
+            persisted = await storageService.addSource(activeProjectId, source);
+        }
+    } catch (e) {
+        console.warn('addSource persistence failed', e);
+    }
 
-    const summaryId = `source-summary-${source.id}`;
-    const immediateText = source.type === 'text' ? (source.content || "") : (source.extractedText || "");
-    const isPreliminary = source.type !== 'text' && !source.extractedText;
-    const summary = buildAutoSummaryMarkdown(source, immediateText, isPreliminary);
+    setSources(prev => [...prev, persisted]);
+
+    const summaryId = `source-summary-${persisted.id}`;
+    const immediateText = persisted.type === 'text' ? (persisted.content || "") : (persisted.extractedText || "");
+    const isPreliminary = persisted.type !== 'text' && !persisted.extractedText;
+    const summary = buildAutoSummaryMarkdown(persisted, immediateText, isPreliminary);
     upsertChatMessage({
         id: summaryId,
         role: 'model',
@@ -244,12 +271,12 @@ const App: React.FC = () => {
     // Ideally, storageService.addSource handles the upload async
 
     // Trigger background text extraction
-    if (source.type !== 'text' && !source.extractedText) {
-        extractTextFromMultimodal(source).then(extracted => {
+    if (persisted.type !== 'text' && !persisted.extractedText) {
+        extractTextFromMultimodal(persisted).then(extracted => {
             if (extracted) {
-                setSources(prev => prev.map(s => s.id === source.id ? { ...s, extractedText: extracted } : s));
+                setSources(prev => prev.map(s => s.id === persisted.id ? { ...s, extractedText: extracted } : s));
 
-                const finalSummary = buildAutoSummaryMarkdown(source, extracted, false);
+                const finalSummary = buildAutoSummaryMarkdown(persisted, extracted, false);
                 upsertChatMessage({
                     id: summaryId,
                     role: 'model',
@@ -261,6 +288,11 @@ const App: React.FC = () => {
   };
 
   const removeSource = (id: string) => {
+    try {
+        if (activeProjectId) {
+            storageService.removeSource(activeProjectId, id);
+        }
+    } catch {}
     setSources(prev => prev.filter(s => s.id !== id));
   };
 
