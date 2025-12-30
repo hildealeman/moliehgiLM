@@ -11,6 +11,11 @@ import { getEffectiveApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMu
 import { supabase } from './src/lib/supabase/client';
 import { Menu } from 'lucide-react';
 
+const isUuid = (value: string): boolean => {
+  // Covers UUID v1-v5.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile>(storageService.getUser());
   const [projects, setProjects] = useState<Project[]>([]);
@@ -74,23 +79,36 @@ const App: React.FC = () => {
         }
 
         const loadedProjects = await storageService.getProjects();
-        setProjects(loadedProjects);
-        
-        if (loadedProjects.length > 0) {
-          loadProject(loadedProjects[0]);
+
+        let isSupabase = false;
+        try {
+           // @ts-ignore
+           isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
+        } catch(e) {}
+
+        // In Supabase mode, project IDs must be UUID. Filter out legacy numeric projects
+        // to avoid 22P02 errors when writing sources/messages.
+        const validProjects = isSupabase
+          ? loadedProjects.filter((p) => isUuid(String(p.id)))
+          : loadedProjects;
+
+        setProjects(validProjects);
+
+        if (validProjects.length > 0) {
+          loadProject(validProjects[0]);
         } else {
             // If no projects, check if we need to create default (Mock only)
             // Use safe check for environment var
-            let isSupabase = false;
-            try {
-               // @ts-ignore
-               isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
-            } catch(e) {}
-
             if (!isSupabase) {
                 const defaultProject = storageService.createProject("PROYECTO_ALPHA_01");
                 setProjects([defaultProject]);
                 loadProject(defaultProject);
+            } else {
+                // In cloud mode, don't auto-create a project without a valid session.
+                setActiveProjectId(null);
+                setSources([]);
+                setChatHistory([]);
+                setSourceHistory([]);
             }
         }
         
@@ -112,6 +130,14 @@ const App: React.FC = () => {
   // Save changes
   useEffect(() => {
     if (!activeProjectId) return;
+
+    // Prevent invalid uuid writes in Supabase mode (legacy numeric IDs).
+    try {
+      // @ts-ignore
+      const isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
+      if (isSupabase && !isUuid(String(activeProjectId))) return;
+    } catch {}
+
     const projectToUpdate = projects.find(p => p.id === activeProjectId);
     if (!projectToUpdate) return;
 
@@ -129,6 +155,17 @@ const App: React.FC = () => {
   }, [sources, chatHistory, sourceHistory, activeProjectId]);
 
   const loadProject = (project: Project) => {
+      try {
+        // @ts-ignore
+        const isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
+        if (isSupabase && !isUuid(String(project.id))) {
+          setActiveProjectId(null);
+          setSources([]);
+          setChatHistory([]);
+          setSourceHistory([]);
+          return;
+        }
+      } catch {}
       setActiveProjectId(project.id);
       setSources(project.sources);
       setChatHistory(project.chatHistory);
@@ -254,6 +291,15 @@ const App: React.FC = () => {
     let persisted: Source = source;
     try {
         if (activeProjectId) {
+            try {
+              // @ts-ignore
+              const isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
+              if (isSupabase && !isUuid(String(activeProjectId))) {
+                throw new Error('Invalid project id for Supabase mode');
+              }
+            } catch (e) {
+              throw e;
+            }
             persisted = await storageService.addSource(activeProjectId, source);
         }
     } catch (e) {
@@ -296,6 +342,15 @@ const App: React.FC = () => {
   const removeSource = (id: string) => {
     try {
         if (activeProjectId) {
+            try {
+              // @ts-ignore
+              const isSupabase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_PROVIDER === 'supabase');
+              if (isSupabase && !isUuid(String(activeProjectId))) {
+                throw new Error('Invalid project id for Supabase mode');
+              }
+            } catch (e) {
+              throw e;
+            }
             storageService.removeSource(activeProjectId, id);
         }
     } catch {}
