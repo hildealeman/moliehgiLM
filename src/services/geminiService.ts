@@ -281,8 +281,14 @@ export const generateSuggestions = async (sources: Source[], history: string[]):
 
 export const generateImage = async (prompt: string, options: ImageGenOptions): Promise<string> => {
     try {
-        const ai = getClient();
-        if (!ai) throw new Error("Image generation not supported in proxy mode yet.");
+        let ai = getClient();
+        if (!ai) {
+            const clientKey = getEffectiveClientApiKey();
+            if (!clientKey) {
+                throw new Error("Generación de imagen requiere una API Key del cliente. Abre Configuración (⚙️) y guarda tu key.");
+            }
+            ai = new GoogleGenAI({ apiKey: clientKey });
+        }
 
         const usePro = options.size === '2K' || options.size === '4K';
         const model = usePro ? ModelType.IMAGE : 'gemini-2.5-flash-image';

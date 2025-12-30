@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Globe, Image as ImageIcon, Sparkles, Brain, X, PlayCircle, Loader2, FileText, ChevronDown, ChevronRight, Zap, AlignLeft, Download, Lightbulb, Link2, Eye, MessageSquarePlus, Menu, Headphones, Network, Wand2, PauseCircle, FileAudio, FilePlus, Check, CassetteTape, Save, AlertTriangle, AlertCircle, ChefHat } from 'lucide-react';
+import { Send, Mic, Globe, Image as ImageIcon, Sparkles, Brain, X, PlayCircle, Loader2, FileText, ChevronDown, ChevronRight, Zap, AlignLeft, Download, Lightbulb, Link2, Eye, MessageSquarePlus, Menu, Headphones, Network, Wand2, PauseCircle, FileAudio, FilePlus, Check, CassetteTape, Save, AlertTriangle, AlertCircle, ChefHat, Film } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { ChatMessage, ImageGenOptions, Source } from '../types';
 import { generateTextResponse, generateImage, transcribeAudio, textToSpeech, analyzeImage, generateSuggestions, generatePodcastAudio } from '../src/services/geminiService';
@@ -667,6 +667,177 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
       }
   };
 
+  const handleCreateStudyGuide = async () => {
+      setIsStudioOpen(false);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: "GENERAR_GUIA_DE_ESTUDIO" };
+      setChatHistory(prev => [...prev, userMsg]);
+      setIsProcessing(true);
+
+      try {
+          const prompt = `Crea una guía de estudio en Markdown basada en las fuentes cargadas.
+
+Incluye obligatoriamente:
+1) Objetivos de aprendizaje (5-8)
+2) Resumen estructurado
+3) Conceptos clave (glosario)
+4) Preguntas tipo examen (10) con respuestas al final
+5) Actividades prácticas / ejercicios
+6) Plan de estudio sugerido (3-7 días)
+
+Tono: claro, académico, práctico. Responde en español.`;
+          const response = await generateTextResponse(prompt, [], sources, false, false);
+          setChatHistory(prev => [...prev, {
+              id: (Date.now() + 1).toString(),
+              role: 'model',
+              text: `### 📚 STUDY GUIDE\n\n${response.text}`
+          }]);
+      } catch (e: any) {
+          setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: e.message }]);
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
+  const handleCreateBlogPost = async () => {
+      setIsStudioOpen(false);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: "GENERAR_BLOG_POST" };
+      setChatHistory(prev => [...prev, userMsg]);
+      setIsProcessing(true);
+
+      try {
+          const prompt = `Escribe un blog post en Markdown basado en las fuentes cargadas.
+
+Requisitos:
+- Título + subtítulo
+- Introducción con hook
+- 4 a 6 secciones con encabezados
+- Ejemplos concretos referenciando las fuentes
+- Conclusión + CTA
+- Lista de "Lecturas relacionadas" (si aplica)
+
+Tono: profesional, claro, no demasiado largo. Responde en español.`;
+          const response = await generateTextResponse(prompt, [], sources, false, false);
+          setChatHistory(prev => [...prev, {
+              id: (Date.now() + 1).toString(),
+              role: 'model',
+              text: `### 📝 BLOG POST\n\n${response.text}`
+          }]);
+      } catch (e: any) {
+          setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: e.message }]);
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
+  const handleCreateVideoScript = async () => {
+      setIsStudioOpen(false);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: "GENERAR_GUION_DE_VIDEO" };
+      setChatHistory(prev => [...prev, userMsg]);
+      setIsProcessing(true);
+
+      try {
+          const prompt = `Crea un guion de video (5-8 minutos) basado en las fuentes cargadas.
+
+Formato en Markdown:
+- Título
+- Hook (0:00-0:20)
+- Estructura por secciones con timestamps aproximados
+- Voz en off (VO)
+- Visuales sugeridos (B-roll / on-screen text)
+- Cierre + CTA
+
+Tono: dinámico, claro, técnico pero accesible. Responde en español.`;
+          const response = await generateTextResponse(prompt, [], sources, false, false);
+          setChatHistory(prev => [...prev, {
+              id: (Date.now() + 1).toString(),
+              role: 'model',
+              text: `### 🎬 VIDEO SCRIPT\n\n${response.text}`
+          }]);
+      } catch (e: any) {
+          setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: e.message }]);
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
+  const handleCreateStoryboard = async () => {
+      setIsStudioOpen(false);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: "GENERAR_STORYBOARD" };
+      setChatHistory(prev => [...prev, userMsg]);
+      setIsProcessing(true);
+
+      try {
+          const outlinePrompt = `Genera un storyboard de 4 paneles basado en las fuentes cargadas.
+
+Devuelve SOLO JSON válido (sin markdown) con esta forma exacta:
+{
+  "style": "...",
+  "panels": [
+    {"title":"Panel 1", "caption":"...", "image_prompt":"..."},
+    {"title":"Panel 2", "caption":"...", "image_prompt":"..."},
+    {"title":"Panel 3", "caption":"...", "image_prompt":"..."},
+    {"title":"Panel 4", "caption":"...", "image_prompt":"..."}
+  ]
+}
+
+Reglas:
+- image_prompt debe describir claramente la escena, composición y ambiente.
+- NO incluyas texto dentro de la imagen ("no text").
+- Estilo consistente y cinematográfico.
+- Responde en español.`;
+
+          const outline = await generateTextResponse(outlinePrompt, [], sources, false, false);
+
+          let panels: Array<{ title: string; caption: string; image_prompt: string }> = [];
+          let style = "";
+          try {
+              const parsed = JSON.parse(outline.text || "{}");
+              style = String(parsed?.style || "");
+              panels = Array.isArray(parsed?.panels) ? parsed.panels : [];
+          } catch {
+              panels = [];
+          }
+
+          if (panels.length !== 4) {
+              // Fallback: create 4 generic prompts
+              style = style || "cinematic storyboard, high contrast, clean composition";
+              panels = [
+                { title: "Panel 1", caption: "Apertura", image_prompt: "Apertura cinematográfica relacionada al tema principal, no text" },
+                { title: "Panel 2", caption: "Contexto", image_prompt: "Escena explicando contexto del tema, no text" },
+                { title: "Panel 3", caption: "Insight", image_prompt: "Visualización del insight clave, no text" },
+                { title: "Panel 4", caption: "Cierre", image_prompt: "Cierre con sensación de conclusión y claridad, no text" },
+              ];
+          }
+
+          setChatHistory(prev => [...prev, {
+              id: (Date.now() + 1).toString(),
+              role: 'model',
+              text: `> SISTEMA: Generando storyboard visual (4 paneles)...\n\n${style ? `**Style:** ${style}` : ''}`.trim()
+          }]);
+
+          const images: string[] = [];
+          const captions: string[] = [];
+          for (let i = 0; i < panels.length; i++) {
+              const p = panels[i];
+              const fullPrompt = `${style ? `Style: ${style}. ` : ''}${p.image_prompt}`;
+              const img = await generateImage(fullPrompt, { aspectRatio: '16:9', size: '1K' });
+              images.push(img);
+              captions.push(`${p.title}: ${p.caption}`);
+          }
+
+          setChatHistory(prev => [...prev, {
+              id: (Date.now() + 2).toString(),
+              role: 'model',
+              text: `### 🧩 STORYBOARD\n\n${captions.map(c => `- ${c}`).join('\n')}`,
+              images
+          }]);
+      } catch (e: any) {
+          setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: e.message }]);
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
   const handleCreateMindMap = async () => {
       setIsStudioOpen(false);
       const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: "GENERAR_MAPA_MENTAL" };
@@ -1058,6 +1229,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
                             <span className="text-xs font-bold text-neutral-300">Briefing Doc</span>
                             <span className="text-[9px] text-neutral-600 text-center">Markdown Report</span>
                         </button>
+                        <button onClick={handleCreateStudyGuide} className="flex flex-col items-center justify-center p-4 bg-black border border-neutral-800 hover:border-indigo-500 hover:bg-indigo-500/10 transition-all gap-2 group min-h-[100px]">
+                            <ChefHat size={24} className="text-indigo-500 mb-1 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs font-bold text-neutral-300">Study Guide</span>
+                            <span className="text-[9px] text-neutral-600 text-center">Learning Plan</span>
+                        </button>
                         <button onClick={handleCreatePodcast} className="flex flex-col items-center justify-center p-4 bg-black border border-neutral-800 hover:border-pink-500 hover:bg-pink-500/10 transition-all gap-2 group min-h-[100px]">
                             <Headphones size={24} className="text-pink-500 mb-1 group-hover:scale-110 transition-transform" />
                             <span className="text-xs font-bold text-neutral-300">Audio Overview</span>
@@ -1067,6 +1243,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
                             <Network size={24} className="text-green-500 mb-1 group-hover:scale-110 transition-transform" />
                             <span className="text-xs font-bold text-neutral-300">Mind Map</span>
                             <span className="text-[9px] text-neutral-600 text-center">Knowledge Graph</span>
+                        </button>
+                        <button onClick={handleCreateBlogPost} className="flex flex-col items-center justify-center p-4 bg-black border border-neutral-800 hover:border-amber-500 hover:bg-amber-500/10 transition-all gap-2 group min-h-[100px]">
+                            <AlignLeft size={24} className="text-amber-500 mb-1 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs font-bold text-neutral-300">Blog Post</span>
+                            <span className="text-[9px] text-neutral-600 text-center">Publish-ready</span>
+                        </button>
+                        <button onClick={handleCreateVideoScript} className="flex flex-col items-center justify-center p-4 bg-black border border-neutral-800 hover:border-cyan-500 hover:bg-cyan-500/10 transition-all gap-2 group min-h-[100px]">
+                            <Film size={24} className="text-cyan-500 mb-1 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs font-bold text-neutral-300">Video Script</span>
+                            <span className="text-[9px] text-neutral-600 text-center">VO + Shots</span>
+                        </button>
+                        <button onClick={handleCreateStoryboard} className="flex flex-col items-center justify-center p-4 bg-black border border-neutral-800 hover:border-orange-500 hover:bg-orange-500/10 transition-all gap-2 group min-h-[100px]">
+                            <ImageIcon size={24} className="text-orange-500 mb-1 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs font-bold text-neutral-300">Storyboard</span>
+                            <span className="text-[9px] text-neutral-600 text-center">4 Panels</span>
                         </button>
                     </div>
                 </div>
