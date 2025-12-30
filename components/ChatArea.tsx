@@ -35,6 +35,126 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
   const [isProcessing, setIsProcessing] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  const escapeXml = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+  type MindMapNode = { id: string; text: string; depth: number; children: MindMapNode[] };
+
+  const parseMindMapMarkdown = (md: string): MindMapNode | null => {
+      const rawLines = String(md || "")
+        .split(/\r?\n/)
+        .map(l => l.replace(/\t/g, "  "))
+        .filter(l => l.trim().length > 0);
+
+      const lines = rawLines
+        .map((line) => {
+          const m = line.match(/^(\s*)[-*+]\s+(.*)$/);
+          if (!m) return null;
+          const indent = m[1] || "";
+          const text = (m[2] || "").trim();
+          const depth = Math.floor(indent.length / 2);
+          return { depth, text };
+        })
+        .filter(Boolean) as { depth: number; text: string }[];
+
+      if (lines.length === 0) return null;
+
+      const root: MindMapNode = { id: "root", text: "Mind Map", depth: -1, children: [] };
+      const stack: MindMapNode[] = [root];
+
+      for (let i = 0; i < lines.length; i++) {
+        const { depth, text } = lines[i];
+        const node: MindMapNode = { id: `n_${i}`, text, depth, children: [] };
+
+        while (stack.length > 0 && stack[stack.length - 1].depth >= depth) {
+          stack.pop();
+        }
+        const parent = stack[stack.length - 1] || root;
+        parent.children.push(node);
+        stack.push(node);
+      }
+
+      // If there's a single top-level bullet, use it as title.
+      if (root.children.length === 1) return root.children[0];
+      return root;
+  };
+
+  const mindMapToSvgDataUrl = (tree: MindMapNode): string => {
+      const nodes: Array<{ node: MindMapNode; x: number; y: number }> = [];
+      const edges: Array<{ fromId: string; toId: string }> = [];
+
+      const xStep = 240;
+      const yStep = 90;
+      let yCursor = 40;
+
+      const traverse = (n: MindMapNode, parent: MindMapNode | null) => {
+        const depth = Math.max(n.depth, 0);
+        const x = 40 + depth * xStep;
+        const y = yCursor;
+        yCursor += yStep;
+        nodes.push({ node: n, x, y });
+        if (parent) edges.push({ fromId: parent.id, toId: n.id });
+        for (const c of n.children) traverse(c, n);
+      };
+
+      // Normalize root depth and traverse
+      const normalizedRoot = { ...tree, depth: 0 } as MindMapNode;
+      traverse(normalizedRoot, null);
+
+      const nodeIndex = new Map(nodes.map(n => [n.node.id, n]));
+
+      const maxX = Math.max(...nodes.map(n => n.x)) + 520;
+      const maxY = Math.max(...nodes.map(n => n.y)) + 80;
+
+      const svgParts: string[] = [];
+      svgParts.push(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" viewBox="0 0 ${maxX} ${maxY}">`
+      );
+      svgParts.push(`<defs><style><![CDATA[
+        .bg { fill: #0a0a0a; }
+        .edge { stroke: rgba(249,115,22,0.55); stroke-width: 2; fill: none; }
+        .box { fill: #111827; stroke: rgba(255,255,255,0.12); stroke-width: 1; rx: 10; }
+        .title { fill: #fff; font: 600 14px ui-sans-serif, system-ui, -apple-system; }
+        .text { fill: rgba(255,255,255,0.86); font: 12px ui-sans-serif, system-ui, -apple-system; }
+      ]]></style></defs>`);
+      svgParts.push(`<rect class="bg" x="0" y="0" width="${maxX}" height="${maxY}" />`);
+
+      // edges
+      for (const e of edges) {
+        const a = nodeIndex.get(e.fromId);
+        const b = nodeIndex.get(e.toId);
+        if (!a || !b) continue;
+        const x1 = a.x + 260;
+        const y1 = a.y + 24;
+        const x2 = b.x;
+        const y2 = b.y + 24;
+        const midX = (x1 + x2) / 2;
+        svgParts.push(`<path class="edge" d="M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}" />`);
+      }
+
+      // nodes
+      const boxW = 260;
+      const boxH = 56;
+      for (const n of nodes) {
+        const label = escapeXml(n.node.text.length > 80 ? n.node.text.slice(0, 77) + "…" : n.node.text);
+        const isRoot = n.node.id === normalizedRoot.id;
+        svgParts.push(`<g>`);
+        svgParts.push(`<rect class="box" x="${n.x}" y="${n.y}" width="${boxW}" height="${boxH}" />`);
+        svgParts.push(`<text x="${n.x + 14}" y="${n.y + 22}" class="${isRoot ? 'title' : 'text'}">${label}</text>`);
+        svgParts.push(`</g>`);
+      }
+
+      svgParts.push(`</svg>`);
+
+      const svg = svgParts.join("");
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  };
   
   // Loading Message State
   const [loadingMsg, setLoadingMsg] = useState("");
@@ -557,10 +677,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
           const prompt = "Genera un mapa mental jerárquico de los conceptos clave en las fuentes. Utiliza formato de lista indentada con Markdown. Ejemplo:\n- Concepto Central\n  - Subtema A\n    - Detalle 1";
           const response = await generateTextResponse(prompt, [], sources, false, false);
 
+          const tree = parseMindMapMarkdown(response.text);
+          const mindMapImage = tree ? mindMapToSvgDataUrl(tree) : null;
+
           setChatHistory(prev => [...prev, {
               id: (Date.now() + 1).toString(),
               role: 'model',
-              text: `### 🧠 KNOWLEDGE GRAPH\n\n${response.text}`
+              text: `### 🧠 KNOWLEDGE GRAPH\n\n${response.text}`,
+              ...(mindMapImage ? { images: [mindMapImage] } : {})
           }]);
       } catch (e: any) {
           setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: e.message }]);
