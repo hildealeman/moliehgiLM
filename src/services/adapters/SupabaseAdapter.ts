@@ -272,6 +272,7 @@ export class SupabaseAdapter implements StorageAdapter {
 
     // 2. Create DB Record
     const { data, error } = await supabase.from(TABLES.sources).insert({
+        id: source.id,
         project_id: projectId,
         user_id: userId,
         title: source.title,
@@ -286,7 +287,7 @@ export class SupabaseAdapter implements StorageAdapter {
     if (error) throw error;
     
     // Return updated source with remote ID if needed
-    return { ...source, id: data.id };
+    return { ...source, id: data.id || source.id };
   }
 
   async removeSource(projectId: string, sourceId: string): Promise<void> {
