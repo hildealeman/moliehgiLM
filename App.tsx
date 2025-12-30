@@ -16,6 +16,8 @@ const isUuid = (value: string): boolean => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 };
 
+const MOLIELM_BUILD = '39b5200';
+
 const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile>(storageService.getUser());
   const [projects, setProjects] = useState<Project[]>([]);
@@ -34,6 +36,12 @@ const App: React.FC = () => {
   const [showVoiceAuthModal, setShowVoiceAuthModal] = useState(false);
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
+
+  useEffect(() => {
+    try {
+      (window as any).__MOLIELM_BUILD__ = MOLIELM_BUILD;
+    } catch {}
+  }, []);
 
   useEffect(() => {
     autoSaveRef.current = { sources, chatHistory, sourceHistory, activeProjectId, projects };
