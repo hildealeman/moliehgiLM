@@ -390,8 +390,14 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
 
 export const textToSpeech = async (text: string): Promise<ArrayBuffer> => {
     try {
-        const ai = getClient();
-        if (!ai) throw new Error("TTS not supported in proxy mode yet.");
+        let ai = getClient();
+        if (!ai) {
+            const clientKey = getEffectiveClientApiKey();
+            if (!clientKey) {
+                throw new Error("TTS requiere una API Key del cliente. Abre Configuración (⚙️) y guarda tu key.");
+            }
+            ai = new GoogleGenAI({ apiKey: clientKey });
+        }
 
         const safeText = text.length > 4000 ? text.substring(0, 4000) + "... (truncated)" : text;
         const response = await ai.models.generateContent({
@@ -425,8 +431,14 @@ export const textToSpeech = async (text: string): Promise<ArrayBuffer> => {
 
 export const generatePodcastAudio = async (script: string): Promise<string> => {
     try {
-        const ai = getClient();
-        if (!ai) throw new Error("Podcast generation not supported in proxy mode yet.");
+        let ai = getClient();
+        if (!ai) {
+            const clientKey = getEffectiveClientApiKey();
+            if (!clientKey) {
+                throw new Error("Podcast requiere una API Key del cliente. Abre Configuración (⚙️) y guarda tu key.");
+            }
+            ai = new GoogleGenAI({ apiKey: clientKey });
+        }
 
         const safeDialogue = script.length > 4000 ? script.substring(0, 4000) : script;
         const prompt = `TTS the following conversation between Kore and Puck:\n\n${safeDialogue}`;
