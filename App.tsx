@@ -43,7 +43,13 @@ const App: React.FC = () => {
                 const { data, error } = await supabase.auth.getSession();
                 if (error) {
                     const msg = String((error as any)?.message || error);
-                    if (msg.toLowerCase().includes('refresh token') || msg.toLowerCase().includes('invalid refresh')) {
+                    const lower = msg.toLowerCase();
+                    if (
+                        lower.includes('refresh token') ||
+                        lower.includes('invalid refresh') ||
+                        lower.includes('session_not_found') ||
+                        lower.includes('session from session_id claim')
+                    ) {
                         try {
                             await supabase.auth.signOut();
                         } catch {}
