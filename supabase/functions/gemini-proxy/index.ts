@@ -41,9 +41,33 @@ const getCorsHeaders = (req: Request) => {
   };
 };
 
-const geminiGenerateContent = async (prompt: string) => {
+const geminiGenerateContent = async (
+  prompt: string,
+  opts?: { useSearch?: boolean; history?: string[]; sources?: Array<{ title?: string; content?: string }> },
+) => {
   const primaryModel = Deno.env.get("GEMINI_MODEL") || "";
   const models = pickModels(primaryModel, DEFAULT_MODEL_FALLBACKS);
+
+  const useSearch = !!opts?.useSearch;
+  const history = Array.isArray(opts?.history) ? opts?.history : [];
+  const sources = Array.isArray(opts?.sources) ? opts?.sources : [];
+
+  const parts: any[] = [];
+  if (sources.length > 0) {
+    parts.push({
+      text:
+        "FUENTES (resumen):\n" +
+        sources
+          .map((s) => `- ${String(s?.title || "Fuente")}: ${String(s?.content || "").slice(0, 2000)}`)
+          .join("\n"),
+    });
+  }
+
+  if (history.length > 0) {
+    parts.push({ text: `HISTORIAL RECIENTE:\n${history.slice(-8).join("\n")}` });
+  }
+
+  parts.push({ text: prompt });
 
   let lastErr: Error | null = null;
   for (const model of models) {
@@ -53,7 +77,10 @@ const geminiGenerateContent = async (prompt: string) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        contents: [{ role: "user", parts }],
+        // Enable Google Search grounding when requested.
+        // Note: Tool availability depends on the API key/project configuration.
+        ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
       }),
     });
 
@@ -67,8 +94,13 @@ const geminiGenerateContent = async (prompt: string) => {
     }
 
     const json = await res.json();
-    const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("") || "";
-    return text;
+    const text =
+      json?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p?.text)
+        .filter(Boolean)
+        .join("") ||
+      "";
+    return { text, groundingMetadata: json?.candidates?.[0]?.groundingMetadata };
   }
 
   throw lastErr || new Error("Gemini REST error: no supported model found");
@@ -138,7 +170,7 @@ serve(async (req: any) => {
   }
 
   try {
-    const { action, prompt, history, sources, audio } = await req.json();
+    const { action, prompt, history, sources, audio, config } = await req.json();
     const corsHeaders = getCorsHeaders(req);
 
     if (!apiKey) {
@@ -148,18 +180,16 @@ serve(async (req: any) => {
       );
     }
     
-    // Construct Prompt
-    let fullPrompt = `System: Use the following sources to answer.\n`;
-    if (sources) {
-        sources.forEach((s: any) => {
-            fullPrompt += `Source [${s.title}]: ${s.content.substring(0, 2000)}\n`;
-        });
-    }
-    fullPrompt += `\nUser: ${prompt}`;
+    // Construct prompt (the model also receives sources/history as structured parts)
+    const fullPrompt = String(prompt || "");
 
     if (action === 'generateContent') {
-        const text = await geminiGenerateContent(fullPrompt);
-        return new Response(JSON.stringify({ text }), {
+        const result = await geminiGenerateContent(fullPrompt, {
+          useSearch: !!config?.useSearch,
+          history: Array.isArray(history) ? history : [],
+          sources: Array.isArray(sources) ? sources : [],
+        });
+        return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
     }
