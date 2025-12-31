@@ -616,32 +616,36 @@ const App: React.FC = () => {
         onClick={() => setIsSidebarOpen(false)}
       />
 
-      <Sidebar 
-          user={user}
-          projects={projects}
-          activeProjectId={activeProjectId}
-          sources={sources} 
-          history={sourceHistory}
-          isMirrorMode={isMirrorMode}
-          onAddSource={addSource} 
-          onRemoveSource={removeSource} 
-          onSwitchProject={handleSwitchProject}
-          onCreateProject={handleCreateProject}
-          onDeleteProject={handleDeleteProject}
-          onClearChat={handleClearChat}
-          onToggleMirror={() => setIsMirrorMode(!isMirrorMode)}
-          onMobileClose={() => setIsSidebarOpen(false)}
-          onOpenSettings={() => setShowApiKeyModal(true)}
-          onOpenVoiceAuth={() => {
-            if (!enableVoiceAuth) {
-              alert('Voice Auth está desactivado. Configura VITE_ENABLE_VOICE_AUTH=true');
-              return;
-            }
-            setShowVoiceAuthModal(true);
-          }}
-          onLogout={handleLogout}
-          onUpdateUser={handleUpdateUser}
-        />
+      <div
+        className={`fixed inset-y-0 left-0 z-50 w-[340px] max-w-[90vw] transform transition-transform duration-300 md:static md:z-20 md:translate-x-0 md:w-[360px] ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:border-r md:border-neutral-800`}
+      >
+        <Sidebar 
+            user={user}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            sources={sources} 
+            history={sourceHistory}
+            isMirrorMode={isMirrorMode}
+            onAddSource={addSource} 
+            onRemoveSource={removeSource} 
+            onSwitchProject={handleSwitchProject}
+            onCreateProject={handleCreateProject}
+            onDeleteProject={handleDeleteProject}
+            onClearChat={handleClearChat}
+            onToggleMirror={() => setIsMirrorMode(!isMirrorMode)}
+            onMobileClose={() => setIsSidebarOpen(false)}
+            onOpenSettings={() => setShowApiKeyModal(true)}
+            onOpenVoiceAuth={() => {
+              if (!enableVoiceAuth) {
+                alert('Voice Auth está desactivado. Configura VITE_ENABLE_VOICE_AUTH=true');
+                return;
+              }
+              setShowVoiceAuthModal(true);
+            }}
+            onLogout={handleLogout}
+            onUpdateUser={handleUpdateUser}
+          />
+      </div>
 
       <main className={`flex-1 flex relative h-full w-full min-w-0 ${isMirrorMode ? 'flex-col md:flex-row' : 'flex-col'}`}>
         {activeProjectId ? (
