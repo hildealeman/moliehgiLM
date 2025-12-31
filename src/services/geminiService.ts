@@ -151,7 +151,10 @@ export const generateTextResponse = async (
               }
           });
 
-          if (error) throw new Error(error.message);
+          if (error) {
+              const serverMsg = (data as any)?.error;
+              throw new Error(serverMsg || error.message);
+          }
           return data;
 
       } else {
@@ -335,7 +338,10 @@ export const analyzeImage = async (base64Image: string, prompt: string): Promise
                     prompt,
                 }
             });
-            if (error) throw error;
+            if (error) {
+                const serverMsg = (data as any)?.error;
+                throw new Error(serverMsg || error.message);
+            }
             return data.text || "No se pudo analizar la imagen.";
         }
 
@@ -375,7 +381,10 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
                     audio: base64Audio
                 }
             });
-            if (error) throw error;
+            if (error) {
+                const serverMsg = (data as any)?.error;
+                throw new Error(serverMsg || error.message);
+            }
             return data.text;
         }
 
