@@ -51,6 +51,9 @@ const App: React.FC = () => {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showVoiceAuthModal, setShowVoiceAuthModal] = useState(false);
 
+  const [isDragOverlayOpen, setIsDragOverlayOpen] = useState(false);
+  const dragDepthRef = useRef(0);
+
   const handleOpenLive = () => {
     const clientKey = getEffectiveClientApiKey();
     if (!clientKey) {
@@ -58,6 +61,83 @@ const App: React.FC = () => {
       return;
     }
     setIsLiveOpen(true);
+  };
+
+  const readFileAsSource = (file: File, index: number) => {
+    return new Promise<Source>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('FileReader error'));
+      reader.onload = (ev) => {
+        const result = ev.target?.result as string;
+
+        let type: 'text' | 'file' | 'image' = 'file';
+        let mimeType = file.type;
+
+        if (file.type.startsWith('image/')) {
+          type = 'image';
+        } else if (file.type === 'application/pdf') {
+          type = 'file';
+        } else if (file.type.includes('text') || file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.json')) {
+          type = 'text';
+          mimeType = file.type || 'text/plain';
+        }
+
+        resolve({
+          id: `${Date.now()}-${index}`,
+          title: file.name,
+          content: result,
+          type,
+          mimeType,
+        });
+      };
+
+      if (file.type.startsWith('image/') || file.type === 'application/pdf' || !file.type || !file.type.includes('text')) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    });
+  };
+
+  const handleGlobalDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    dragDepthRef.current += 1;
+    setIsDragOverlayOpen(true);
+  };
+
+  const handleGlobalDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDragOverlayOpen(false);
+  };
+
+  const handleGlobalDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+  };
+
+  const handleGlobalDrop = async (e: React.DragEvent) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+
+    dragDepthRef.current = 0;
+    setIsDragOverlayOpen(false);
+
+    if (!activeProjectId) {
+      alert('Selecciona un proyecto antes de agregar fuentes.');
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files);
+    try {
+      const sourcesToAdd = await Promise.all(files.map((f, i) => readFileAsSource(f, i)));
+      for (const s of sourcesToAdd) {
+        await addSource(s);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('No se pudieron agregar los archivos.');
+    }
   };
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
@@ -499,19 +579,44 @@ const App: React.FC = () => {
                 hasSystemKey={!!getSystemApiKey()}
             />
           </>
+
       );
   }
 
-  // ... [Render Return remains mostly identical, passing the handlers] ...
   return (
-    <div className="flex h-[100dvh] w-full bg-[#050505] overflow-hidden">
+    <div
+      className="h-screen w-screen bg-black text-white flex overflow-hidden"
+      onDragEnter={handleGlobalDragEnter}
+      onDragLeave={handleGlobalDragLeave}
+      onDragOver={handleGlobalDragOver}
+      onDrop={handleGlobalDrop}
+    >
+      {isDragOverlayOpen && (
+        <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-md flex items-center justify-center pointer-events-none">
+          <div className="w-full max-w-3xl px-6">
+            <div className="text-center mb-6">
+              <h2 className="text-sm md:text-base font-bold tracking-[0.2em] uppercase text-white">Suelta para agregar como Fuente</h2>
+              <p className="text-[10px] md:text-xs text-neutral-300 mt-2">Imágenes, PDF, TXT/MD/CSV/JSON</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-dashed border-orange-500/70 bg-black/40 p-6 text-center">
+                <div className="text-[10px] uppercase tracking-widest text-neutral-200 font-bold">FUENTES</div>
+                <div className="text-[10px] text-neutral-400 mt-2">Se agregará a tu lista de fuentes</div>
+              </div>
+              <div className="border border-dashed border-orange-500/70 bg-black/40 p-6 text-center">
+                <div className="text-[10px] uppercase tracking-widest text-neutral-200 font-bold">CHAT</div>
+                <div className="text-[10px] text-neutral-400 mt-2">Se agregará y la IA lo podrá usar</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div 
         className={`fixed inset-0 bg-black/80 z-40 md:hidden transition-opacity duration-300 backdrop-blur-sm ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
 
-      <div className={`fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:flex-shrink-0`}>
-        <Sidebar 
+      <Sidebar 
           user={user}
           projects={projects}
           activeProjectId={activeProjectId}
@@ -537,7 +642,6 @@ const App: React.FC = () => {
           onLogout={handleLogout}
           onUpdateUser={handleUpdateUser}
         />
-      </div>
 
       <main className={`flex-1 flex relative h-full w-full min-w-0 ${isMirrorMode ? 'flex-col md:flex-row' : 'flex-col'}`}>
         {activeProjectId ? (

@@ -47,6 +47,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isAddingSource, setIsAddingSource] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [tempText, setTempText] = useState("");
+  const [tempUrl, setTempUrl] = useState("");
   
   // Project Management UI State
   const [showProjectMenu, setShowProjectMenu] = useState(false);
@@ -95,39 +96,52 @@ const Sidebar: React.FC<SidebarProps> = ({
     setShowProjectMenu(false);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
+  const readFileAsSource = (file: File, index: number) => {
+    return new Promise<Source>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('FileReader error'));
+      reader.onload = (ev) => {
         const result = ev.target?.result as string;
-        
+
         let type: 'text' | 'file' | 'image' = 'file';
         let mimeType = file.type;
 
         if (file.type.startsWith('image/')) {
-            type = 'image';
+          type = 'image';
         } else if (file.type === 'application/pdf') {
-            type = 'file'; 
-        } else if (file.type.includes('text') || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-            type = 'text';
-            mimeType = 'text/plain';
+          type = 'file';
+        } else if (file.type.includes('text') || file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.json')) {
+          type = 'text';
+          mimeType = file.type || 'text/plain';
         }
 
-        onAddSource({
-            id: Date.now().toString(),
-            title: file.name,
-            content: result, 
-            type: type,
-            mimeType: mimeType
+        resolve({
+          id: `${Date.now()}-${index}`,
+          title: file.name,
+          content: result,
+          type,
+          mimeType,
         });
-    };
+      };
 
-    if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-        reader.readAsDataURL(file); 
-    } else {
-        reader.readAsText(file); 
+      if (file.type.startsWith('image/') || file.type === 'application/pdf' || !file.type || !file.type.includes('text')) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    try {
+      const sourcesToAdd = await Promise.all(files.map((f, i) => readFileAsSource(f, i)));
+      for (const s of sourcesToAdd) onAddSource(s);
+    } finally {
+      // allow selecting the same file again
+      e.target.value = '';
     }
   };
 
@@ -142,6 +156,27 @@ const Sidebar: React.FC<SidebarProps> = ({
     });
     setTempText("");
     setIsAddingSource(false);
+  };
+
+  const handleAddUrl = () => {
+    const raw = tempUrl.trim();
+    if (!raw) return;
+    let url = raw;
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+
+    let title = url;
+    try {
+      title = new URL(url).hostname;
+    } catch {}
+
+    onAddSource({
+      id: Date.now().toString(),
+      title: `URL_${title}`,
+      content: url,
+      type: 'text',
+      mimeType: 'text/url',
+    });
+    setTempUrl('');
   };
 
   const handleConnectDrive = () => {
@@ -447,7 +482,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                             <label className="flex flex-col items-center justify-center p-4 border border-dashed border-neutral-700 hover:border-orange-500 hover:bg-orange-500/5 cursor-pointer transition-all group">
                                 <Plus size={20} className="text-neutral-500 group-hover:text-orange-500 mb-2" />
                                 <span className="text-[10px] font-bold text-neutral-400 group-hover:text-orange-500">UPLOAD</span>
-                                <input type="file" className="hidden" onChange={handleFileUpload} accept=".txt,.md,.csv,.pdf,.json,image/*" />
+                                <input type="file" multiple className="hidden" onChange={handleFileUpload} accept=".txt,.md,.csv,.pdf,.json,image/*" />
                             </label>
                             <button 
                                 onClick={() => setIsAddingSource(true)}
@@ -472,6 +507,31 @@ const Sidebar: React.FC<SidebarProps> = ({
                             </div>
                         </div>
                     )}
+
+                    <div className="bg-neutral-950 border border-neutral-800 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest">URL</h4>
+                        <Globe size={14} className="text-neutral-600" />
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          value={tempUrl}
+                          onChange={(e) => setTempUrl(e.target.value)}
+                          placeholder="https://ejemplo.com/articulo"
+                          className="flex-1 bg-black border border-neutral-800 px-2 py-2 text-xs text-neutral-200 outline-none focus:border-orange-500"
+                        />
+                        <button
+                          onClick={handleAddUrl}
+                          disabled={!tempUrl.trim()}
+                          className="px-3 py-2 text-[10px] uppercase font-bold tracking-widest bg-orange-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <p className="mt-2 text-[10px] text-neutral-600">
+                        La IA hará crawl de la URL (vía servidor) al usarla como fuente.
+                      </p>
+                    </div>
                 </div>
             </>
         )}

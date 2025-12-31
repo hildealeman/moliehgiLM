@@ -5,6 +5,56 @@ declare const Deno: any;
 
 const apiKey = Deno.env.get('GEMINI_API_KEY') || '';
 
+const isProbablyUrl = (value: string): boolean => {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  return /^https?:\/\//i.test(s);
+};
+
+const stripHtmlToText = (html: string): string => {
+  const raw = String(html || '');
+  const noScripts = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
+  const noTags = noScripts.replace(/<[^>]+>/g, ' ');
+  return noTags
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const fetchUrlText = async (url: string): Promise<string> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'MolieLM/1.0 (server-side crawler)',
+        'Accept': 'text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,*/*;q=0.5',
+      },
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`URL fetch failed ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    const ct = res.headers.get('content-type') || '';
+    const body = await res.text();
+    const extracted = ct.includes('text/html') ? stripHtmlToText(body) : String(body || '').trim();
+    return extracted;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const pickModels = (primary: string | undefined, fallbacks: string[]) => {
   const list = [] as string[];
   const p = String(primary || '').trim();
@@ -54,11 +104,28 @@ const geminiGenerateContent = async (
 
   const parts: any[] = [];
   if (sources.length > 0) {
+    const expanded: Array<{ title: string; content: string }> = [];
+
+    for (const s of sources) {
+      const title = String(s?.title || 'Fuente');
+      const content = String(s?.content || '');
+      if (isProbablyUrl(content)) {
+        try {
+          const text = await fetchUrlText(content);
+          expanded.push({ title, content: `URL: ${content}\n\nTEXTO_EXTRAIDO:\n${text.slice(0, 12000)}` });
+        } catch (e) {
+          expanded.push({ title, content: `URL: ${content}\n\nERROR_CRAWL: ${String((e as any)?.message || e)}` });
+        }
+      } else {
+        expanded.push({ title, content: content.slice(0, 4000) });
+      }
+    }
+
     parts.push({
       text:
         "FUENTES (resumen):\n" +
-        sources
-          .map((s) => `- ${String(s?.title || "Fuente")}: ${String(s?.content || "").slice(0, 2000)}`)
+        expanded
+          .map((s) => `- ${s.title}: ${s.content}`)
           .join("\n"),
     });
   }
