@@ -18,6 +18,22 @@ const isUuid = (value: string): boolean => {
 
 const MOLIELM_BUILD = 'b822e41';
 
+const estimateContentBytes = (source: Source): number | undefined => {
+  try {
+    if (source.type === 'text') {
+      return new Blob([source.content || ""]).size;
+    }
+    const content = String(source.content || "");
+    if (content.startsWith('data:')) {
+      const base64 = content.split(',')[1] || "";
+      return Math.floor((base64.length * 3) / 4);
+    }
+    return new Blob([content]).size;
+  } catch {
+    return undefined;
+  }
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile>(storageService.getUser());
   const [projects, setProjects] = useState<Project[]>([]);
@@ -357,6 +373,18 @@ const App: React.FC = () => {
         role: 'model',
         text: summary,
     });
+
+    setSourceHistory(prev => [
+      {
+        id: `hist-${persisted.id}-${Date.now()}`,
+        timestamp: Date.now(),
+        type: 'added',
+        sourceTitle: persisted.title,
+        contentType: persisted.mimeType || persisted.type,
+        size: estimateContentBytes(persisted),
+      },
+      ...prev,
+    ]);
     
     // ... [Calculations for History Item] ...
     // Note: In Cloud mode, we might want to upload first, but for optimistic UI we update state immediately
@@ -380,6 +408,7 @@ const App: React.FC = () => {
   };
 
   const removeSource = (id: string) => {
+    const toRemove = sources.find(s => s.id === id);
     try {
         if (activeProjectId) {
             try {
@@ -395,6 +424,20 @@ const App: React.FC = () => {
         }
     } catch {}
     setSources(prev => prev.filter(s => s.id !== id));
+
+    if (toRemove) {
+      setSourceHistory(prev => [
+        {
+          id: `hist-${toRemove.id}-${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'removed',
+          sourceTitle: toRemove.title,
+          contentType: toRemove.mimeType || toRemove.type,
+          size: estimateContentBytes(toRemove),
+        },
+        ...prev,
+      ]);
+    }
   };
 
   const handleSaveLiveTranscript = (transcript: string) => {

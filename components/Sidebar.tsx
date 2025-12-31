@@ -294,6 +294,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                             >
                                 <MessageSquareOff size={14} /> Limpiar Chat
                             </button>
+                            {activeProjectId && projects.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  const ok = window.confirm('¿Borrar este proyecto? Esto eliminará fuentes y chat.');
+                                  if (!ok) return;
+                                  onDeleteProject(activeProjectId);
+                                  setShowProjectMenu(false);
+                                }}
+                                className="w-full flex items-center justify-center gap-2 text-[10px] font-bold text-red-400 hover:text-red-300 uppercase tracking-wider py-3 hover:bg-red-900/10 transition-colors"
+                              >
+                                <Trash2 size={14} /> Borrar Proyecto
+                              </button>
+                            )}
                             <button 
                                 onClick={() => setIsCreatingProject(true)}
                                 className="w-full flex items-center justify-center gap-2 text-[10px] font-bold text-orange-500 hover:text-orange-400 uppercase tracking-wider py-3 hover:bg-neutral-900 transition-colors"
