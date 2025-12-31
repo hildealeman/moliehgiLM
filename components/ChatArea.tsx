@@ -259,6 +259,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const fallbackRecCtxRef = useRef<AudioContext | null>(null);
+  const fallbackRecStreamRef = useRef<MediaStream | null>(null);
+  const fallbackRecSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const fallbackRecProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const fallbackRecPcmRef = useRef<Int16Array[]>([]);
   const [imgOptions, setImgOptions] = useState<ImageGenOptions>({ aspectRatio: '1:1', size: '1K' });
 
   // Audio Player Logic (Raw PCM 24kHz)
@@ -269,7 +274,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
 
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const isMobile = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    bottomRef.current?.scrollIntoView({ behavior: isMobile ? 'auto' : 'smooth' });
   }, [chatHistory, isProcessing, activeImageAnalysis]);
 
   const toggleEvidence = (msgId: string) => {
@@ -937,37 +943,151 @@ Reglas:
   const startRecording = async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        let mimeType = 'audio/webm';
-        if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
-        else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
-        
-        const mediaRecorder = new MediaRecorder(stream, { mimeType });
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-        mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: mimeType }); 
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            reader.onloadend = async () => {
+
+        const hasMediaRecorder = typeof window !== 'undefined' && typeof (window as any).MediaRecorder !== 'undefined';
+        if (hasMediaRecorder) {
+          let mimeType = '';
+          try {
+            if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+            else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+            else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+          } catch {}
+
+          try {
+            const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+            mediaRecorder.onstop = async () => {
+              const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || audioChunksRef.current?.[0]?.type || 'audio/webm' });
+              const reader = new FileReader();
+              reader.readAsDataURL(audioBlob);
+              reader.onloadend = async () => {
                 const base64Audio = reader.result as string;
                 setIsProcessing(true);
                 try {
-                    const transcription = await transcribeAudio(base64Audio);
-                    if (transcription) setInput(prev => prev.trim() ? `${prev.trim()} ${transcription}` : transcription);
-                } catch (e) { console.error(e); } finally { setIsProcessing(false); }
+                  const transcription = await transcribeAudio(base64Audio);
+                  if (transcription) setInput(prev => prev.trim() ? `${prev.trim()} ${transcription}` : transcription);
+                } catch (e) {
+                  console.error(e);
+                } finally {
+                  setIsProcessing(false);
+                }
+              };
             };
+            mediaRecorder.start();
+            setIsRecording(true);
+            return;
+          } catch {
+            // Fall through to WebAudio fallback (some iOS builds expose MediaRecorder but fail on constructor)
+          }
+        }
+
+        // WebAudio fallback (iOS Safari-friendly): capture PCM -> WAV
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+        fallbackRecCtxRef.current = ctx;
+        fallbackRecStreamRef.current = stream;
+        fallbackRecPcmRef.current = [];
+        try {
+          if (ctx.state === 'suspended') await ctx.resume();
+        } catch {}
+
+        const source = ctx.createMediaStreamSource(stream);
+        const processor = ctx.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (e) => {
+          const inputData = e.inputBuffer.getChannelData(0);
+          const int16 = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          fallbackRecPcmRef.current.push(int16);
         };
-        mediaRecorder.start();
+
+        source.connect(processor);
+        processor.connect(ctx.destination);
+        fallbackRecSourceRef.current = source;
+        fallbackRecProcessorRef.current = processor;
+
         setIsRecording(true);
-    } catch (err) { alert("Mic error"); }
+    } catch (err) {
+      console.error(err);
+      alert("Mic error");
+    }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (!isRecording) return;
+
+    if (mediaRecorderRef.current) {
+      try {
         mediaRecorderRef.current.stop();
-        setIsRecording(false);
+      } catch {}
+      try {
         mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      } catch {}
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+      return;
+    }
+
+    // Stop WebAudio fallback
+    const ctx = fallbackRecCtxRef.current;
+    const stream = fallbackRecStreamRef.current;
+    const processor = fallbackRecProcessorRef.current;
+    const source = fallbackRecSourceRef.current;
+
+    try {
+      if (processor) processor.onaudioprocess = null;
+    } catch {}
+    try {
+      processor?.disconnect();
+    } catch {}
+    try {
+      source?.disconnect();
+    } catch {}
+    try {
+      stream?.getTracks().forEach(t => t.stop());
+    } catch {}
+    try {
+      ctx?.close();
+    } catch {}
+
+    fallbackRecProcessorRef.current = null;
+    fallbackRecSourceRef.current = null;
+    fallbackRecStreamRef.current = null;
+    fallbackRecCtxRef.current = null;
+
+    const chunks = fallbackRecPcmRef.current;
+    fallbackRecPcmRef.current = [];
+    setIsRecording(false);
+
+    try {
+      const totalLen = chunks.reduce((acc, a) => acc + a.length, 0);
+      const merged = new Int16Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
+      }
+      const pcmBytes = new Uint8Array(merged.buffer);
+      const wavBlob = createWavBlob(pcmBytes, 16000);
+      const reader = new FileReader();
+      reader.readAsDataURL(wavBlob);
+      reader.onloadend = async () => {
+        const base64Audio = reader.result as string;
+        setIsProcessing(true);
+        try {
+          const transcription = await transcribeAudio(base64Audio);
+          if (transcription) setInput(prev => prev.trim() ? `${prev.trim()} ${transcription}` : transcription);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -986,7 +1106,7 @@ Reglas:
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full relative font-mono">
+    <div className="flex-1 flex flex-col h-full min-h-0 relative font-mono">
       <style>{loadingStyles}</style>
 
       {/* Header */}
@@ -1009,7 +1129,7 @@ Reglas:
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 md:space-y-8 scroll-smooth pb-32">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-6 space-y-6 md:space-y-8 scroll-smooth pb-32">
         {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-neutral-700">
                 <Brain size={48} className="mb-4 text-neutral-800" />
@@ -1201,7 +1321,7 @@ Reglas:
       </div>
 
       {/* Input Area */}
-      <div className="bg-black/80 border-t border-neutral-800 backdrop-blur-sm relative z-20">
+      <div className="bg-black/80 border-t border-neutral-800 backdrop-blur-sm relative z-20 pb-[env(safe-area-inset-bottom)]">
         
         {/* Studio Drawer (Mobile & Desktop) */}
         {isStudioOpen && (
