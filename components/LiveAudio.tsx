@@ -161,6 +161,13 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
       inputContextRef.current = inputCtx;
       outputContextRef.current = outputCtx;
       
+      if (typeof window !== 'undefined' && !(window as any).isSecureContext) {
+        throw new Error('El micrófono requiere HTTPS (secure context). Abre la app en https:// y vuelve a intentar.');
+      }
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('getUserMedia no está disponible en este navegador. En iPhone, prueba Safari o habilita permisos de micrófono en iOS Settings.');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
@@ -314,7 +321,23 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
 
     } catch (err: any) {
       console.error("Failed to start live session", err);
-      setError(err.message || "Failed to initialize");
+      const name = String(err?.name || "");
+      const msg = String(err?.message || "Failed to initialize");
+
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        setError(
+          [
+            'Permiso de micrófono bloqueado.',
+            'En iPhone (Chrome):',
+            '1) iOS Settings → Chrome → Microphone → Allow',
+            '2) iOS Settings → Privacy & Security → Microphone → Chrome ON',
+            '3) Recarga la página e intenta de nuevo.',
+          ].join('\n'),
+        );
+        return;
+      }
+
+      setError(msg);
     }
   };
 

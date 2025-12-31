@@ -85,6 +85,36 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
       return root;
   };
 
+  const getMicErrorMessage = (err: any): string => {
+    const name = String(err?.name || "");
+    const msg = String(err?.message || err || "");
+    const isSecure = typeof window !== 'undefined' ? !!(window as any).isSecureContext : true;
+
+    if (!isSecure) {
+      return "El micrófono requiere HTTPS (secure context). Abre la app en https:// y vuelve a intentar.";
+    }
+
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return [
+        "Permiso de micrófono bloqueado.",
+        "En iPhone (Chrome):",
+        "1) iOS Settings → Chrome → Microphone → Allow",
+        "2) iOS Settings → Privacy & Security → Microphone → Chrome ON",
+        "3) Recarga la página e intenta de nuevo.",
+      ].join("\n");
+    }
+
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      return "No se encontró micrófono disponible en el dispositivo.";
+    }
+
+    if (name === 'NotSupportedError') {
+      return "Tu navegador no soporta captura de micrófono en este modo. Prueba Safari o actualiza iOS.";
+    }
+
+    return `No se pudo iniciar el micrófono. ${msg}`;
+  };
+
   const markdownComponents: any = {
       h1: (props: any) => <h1 className="text-lg md:text-xl font-extrabold tracking-tight text-white mb-3" {...props} />,
       h2: (props: any) => <h2 className="text-base md:text-lg font-bold tracking-tight text-white mt-5 mb-2" {...props} />,
@@ -942,6 +972,13 @@ Reglas:
 
   const startRecording = async () => {
     try {
+        if (typeof window !== 'undefined' && !(window as any).isSecureContext) {
+          throw new Error('INSECURE_CONTEXT');
+        }
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('GET_USER_MEDIA_UNAVAILABLE');
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
         const hasMediaRecorder = typeof window !== 'undefined' && typeof (window as any).MediaRecorder !== 'undefined';
@@ -1012,7 +1049,16 @@ Reglas:
         setIsRecording(true);
     } catch (err) {
       console.error(err);
-      alert("Mic error");
+      const message = String((err as any)?.message || "");
+      if (message === 'INSECURE_CONTEXT') {
+        alert("El micrófono requiere HTTPS (secure context). Abre la app en https:// y vuelve a intentar.");
+        return;
+      }
+      if (message === 'GET_USER_MEDIA_UNAVAILABLE') {
+        alert("Este navegador no expone getUserMedia. En iPhone, Chrome usa WebKit: intenta Safari o habilita permisos de micrófono en iOS Settings.");
+        return;
+      }
+      alert(getMicErrorMessage(err));
     }
   };
 
