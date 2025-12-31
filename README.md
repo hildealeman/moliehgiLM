@@ -1,54 +1,58 @@
-
 # MolieLM - HGI (Human Grounded Intelligence)
 
-MolieLM is a localized Spanish clone of NotebookLM, designed to ingest documents, connect ideas, and provide real-time audio debates using Google's Gemini models.
+Hecho en Mexico por ingenio 100% Mexicano, VistaDev Mexico. https://vistadev.mx
 
-## 🏗 Architecture
+MolieLM es una herramienta en Español inspirada en NotebookLM para ingerir documentos, conectar ideas y generar resultados (texto, imágenes y audio en tiempo real) con modelos Gemini.
 
-MolieLM uses a **Hybrid Adapter Architecture**:
+## 🏗 Arquitectura
 
-1.  **Mock Mode (Default):**
-    *   **Database:** IndexedDB (Browser)
-    *   **Storage:** IndexedDB (Files stored as Blobs)
-    *   **AI:** Client-side Gemini API calls
-    *   *Zero setup required.*
+MolieLM usa una **arquitectura híbrida por adaptadores**:
 
-2.  **Cloud Mode (Production):**
-    *   **Database:** Supabase Postgres
-    *   **Storage:** Supabase Storage (`molielm-sources` bucket)
-    *   **AI:** Supabase Edge Function (`gemini-proxy`)
-    *   **Auth:** Voice Gate + Supabase Auth
+1. **Modo Local (Mock / Default):**
+   - **Base de datos:** IndexedDB (navegador)
+   - **Storage:** IndexedDB (archivos como Blobs)
+   - **AI:** llamadas del cliente
+   - *Cero configuración requerida.*
 
-## 🚀 Quick Start (Local Mock Mode)
+2. **Modo Cloud (Producción):**
+   - **Base de datos:** Supabase Postgres
+   - **Storage:** Supabase Storage (`molielm-sources` bucket)
+   - **AI:** Supabase Edge Function (`gemini-proxy`)
+   - **Auth:** Voice Gate + Supabase Auth
 
-1.  **Clone & Install**:
-    ```bash
-    git clone <repo>
-    cd molielm
-    npm install
-    ```
-2.  **Run**:
-    ```bash
-    npm run dev
-    ```
+## 🚀 Inicio Rápido (Modo Local)
 
-## ☁️ Cloud Setup (Supabase)
+1. **Clonar e instalar**:
+   ```bash
+   git clone <repo>
+   cd molielm
+   npm install
+   ```
 
-See [docs/WINDSURF_HANDOFF.md](docs/WINDSURF_HANDOFF.md) for automated setup instructions using an AI IDE.
+2. **Correr en dev**:
+   ```bash
+   npm run dev
+   ```
 
-### Manual Steps
-1.  Create a Supabase Project.
-2.  Run `supabase/migrations/001_init.sql` in the SQL Editor.
-3.  Deploy Edge Functions in `supabase/functions`.
-4.  Set Environment Variables in `.env`:
-    ```
-    VITE_DATA_PROVIDER=supabase
-    VITE_AI_PROVIDER=gemini_proxy
-    VITE_SUPABASE_URL=...
-    VITE_SUPABASE_ANON_KEY=...
-    ```
+## ☁️ Setup Cloud (Supabase)
 
-## 📚 Documentation
-*   [Backend Contract](docs/BACKEND_CONTRACT.md)
-*   [Gemini Setup](docs/GEMINI_SETUP.md)
-*   [Voice Auth Flow](docs/VOICE_AUTH_FLOW.md)
+Ver [docs/WINDSURF_HANDOFF.md](docs/WINDSURF_HANDOFF.md) para instrucciones automatizadas.
+
+### Pasos Manuales
+
+1. Crear un proyecto en Supabase.
+2. Correr migraciones dentro de `supabase/migrations` (SQL Editor o `supabase db push`).
+3. Deploy de Edge Functions en `supabase/functions`.
+4. Configurar variables de entorno en `.env`:
+   ```
+   VITE_DATA_PROVIDER=supabase
+   VITE_AI_PROVIDER=gemini_proxy
+   VITE_SUPABASE_URL=...
+   VITE_SUPABASE_ANON_KEY=...
+   ```
+
+## 📚 Documentación
+
+- [Backend Contract](docs/BACKEND_CONTRACT.md)
+- [Gemini Setup](docs/GEMINI_SETUP.md)
+- [Voice Auth Flow](docs/VOICE_AUTH_FLOW.md)
