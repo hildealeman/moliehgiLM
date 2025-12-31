@@ -21,6 +21,48 @@ export const dbService = {
     },
 
     // 2. SUPABASE MODE (Direct DB Access via RLS)
+    listSupabaseTables: async (url: string, key: string): Promise<Array<{ name: string; columns: string[] }>> => {
+        try {
+            const base = String(url || '').replace(/\/+$/g, '');
+            if (!base || !key) throw new Error('Faltan URL o Anon Key');
+
+            const res = await fetch(`${base}/rest/v1/`, {
+                method: 'GET',
+                headers: {
+                    'apikey': key,
+                    'Authorization': `Bearer ${key}`,
+                    'Accept': 'application/openapi+json',
+                }
+            });
+
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                throw new Error(`No se pudo cargar el schema (${res.status}). ${text.slice(0, 200)}`);
+            }
+
+            const openapi: any = await res.json();
+            const paths = openapi?.paths || {};
+            const schemas = openapi?.components?.schemas || {};
+
+            const tableNames = Object.keys(paths)
+                .map((p) => String(p || ''))
+                .filter((p) => p.startsWith('/') && p.length > 1)
+                .map((p) => p.slice(1))
+                .filter((name) => !!name && !name.startsWith('rpc/'))
+                .filter((name, idx, arr) => arr.indexOf(name) === idx)
+                .sort((a, b) => a.localeCompare(b));
+
+            return tableNames.map((name) => {
+                const schema = schemas?.[name];
+                const props = schema?.properties || {};
+                const columns = Object.keys(props).sort((a, b) => a.localeCompare(b));
+                return { name, columns };
+            });
+        } catch (e: any) {
+            throw new Error(`Error Supabase: ${e.message}`);
+        }
+    },
+
     fetchSupabaseData: async (url: string, key: string, table: string): Promise<string> => {
         try {
             const supabase = createClient(url, key);

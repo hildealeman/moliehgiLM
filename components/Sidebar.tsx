@@ -76,6 +76,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [apiToken, setApiToken] = useState("");
   const [connError, setConnError] = useState<string | null>(null);
 
+  const [supaTables, setSupaTables] = useState<Array<{ name: string; columns: string[] }>>([]);
+  const [isLoadingSupaTables, setIsLoadingSupaTables] = useState(false);
+
   const activeProject = projects.find(p => p.id === activeProjectId);
 
   const formatBytes = (bytes?: number) => {
@@ -229,6 +232,25 @@ const Sidebar: React.FC<SidebarProps> = ({
       } finally {
           setIsConnecting(false);
       }
+  };
+
+  const loadSupabaseTables = async () => {
+    setConnError(null);
+    setIsLoadingSupaTables(true);
+    try {
+      if (!supaUrl || !supaKey) throw new Error('Ingresa Project URL y Anon Key');
+      const list = await dbService.listSupabaseTables(supaUrl, supaKey);
+      setSupaTables(list);
+      if (!supaTable && list.length > 0) setSupaTable(list[0].name);
+      if (list.length === 0) {
+        setConnError('No se detectaron tablas accesibles con esa key. Revisa RLS/permisos o el schema expuesto por PostgREST.');
+      }
+    } catch (e: any) {
+      setConnError(e.message);
+      setSupaTables([]);
+    } finally {
+      setIsLoadingSupaTables(false);
+    }
   };
 
   const handleRemoveAndClose = () => {
@@ -683,16 +705,56 @@ const Sidebar: React.FC<SidebarProps> = ({
                               <>
                                   <div className="space-y-1">
                                       <label className="text-[10px] text-neutral-500 uppercase font-bold">Project URL</label>
-                                      <input value={supaUrl} onChange={e => setSupaUrl(e.target.value)} placeholder="https://xyz.supabase.co" className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono" />
+                                      <input value={supaUrl} onChange={e => { setSupaUrl(e.target.value); setSupaTables([]); }} placeholder="https://xyz.supabase.co" className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono" />
                                   </div>
                                   <div className="space-y-1">
                                       <label className="text-[10px] text-neutral-500 uppercase font-bold">Anon Key</label>
-                                      <input value={supaKey} onChange={e => setSupaKey(e.target.value)} type="password" placeholder="eyJh..." className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono" />
+                                      <input value={supaKey} onChange={e => { setSupaKey(e.target.value); setSupaTables([]); }} type="password" placeholder="eyJh..." className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono" />
                                   </div>
+
+                                  <div className="flex items-center justify-between">
+                                    <button
+                                      onClick={loadSupabaseTables}
+                                      disabled={!supaUrl || !supaKey || isLoadingSupaTables}
+                                      className="text-[10px] uppercase font-bold tracking-widest px-3 py-2 border border-neutral-800 bg-neutral-950 text-green-400 disabled:opacity-50 disabled:cursor-not-allowed hover:border-green-500"
+                                    >
+                                      {isLoadingSupaTables ? 'Cargando tablas...' : 'Cargar tablas'}
+                                    </button>
+                                    <span className="text-[10px] text-neutral-600">
+                                      {supaTables.length > 0 ? `${supaTables.length} tablas` : '—'}
+                                    </span>
+                                  </div>
+
                                   <div className="space-y-1">
                                       <label className="text-[10px] text-neutral-500 uppercase font-bold">Table Name</label>
-                                      <input value={supaTable} onChange={e => setSupaTable(e.target.value)} placeholder="customers" className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono" />
+                                      {supaTables.length > 0 ? (
+                                        <select
+                                          value={supaTable}
+                                          onChange={(e) => setSupaTable(e.target.value)}
+                                          className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono"
+                                        >
+                                          {supaTables.map((t) => (
+                                            <option key={t.name} value={t.name}>{t.name}</option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        <input value={supaTable} onChange={e => setSupaTable(e.target.value)} placeholder="customers" className="w-full bg-black border border-neutral-700 p-2 text-xs text-green-400 focus:border-green-500 outline-none font-mono" />
+                                      )}
                                   </div>
+
+                                  {supaTables.length > 0 && supaTable && (
+                                    <div className="bg-neutral-950 border border-neutral-800 p-2">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">COLUMNAS</span>
+                                        <span className="text-[10px] text-neutral-600">RLS puede ocultar filas</span>
+                                      </div>
+                                      <div className="mt-2 flex flex-wrap gap-1">
+                                        {(supaTables.find(t => t.name === supaTable)?.columns || []).slice(0, 24).map((c) => (
+                                          <span key={c} className="text-[9px] px-1.5 py-0.5 border border-neutral-800 bg-black text-neutral-300 font-mono">{c}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                               </>
                           )}
 
