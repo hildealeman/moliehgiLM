@@ -223,6 +223,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             <span>I</span>
             </h1>
             <p className="text-[10px] text-neutral-500 uppercase tracking-[0.2em] mt-1">Human Grounded Intelligence</p>
+            <a
+              href="https://hgihub.cloud"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex mt-3 text-[10px] uppercase tracking-[0.2em] text-neutral-400 hover:text-white transition-colors"
+            >
+              BACK_TO_HGIHUB.CLOUD
+            </a>
         </div>
         {/* Mobile Close Button */}
         <button 

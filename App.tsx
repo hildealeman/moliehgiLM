@@ -522,6 +522,16 @@ const App: React.FC = () => {
                           <Menu size={20} />
                       </button>
                       <span className="ml-4 text-xs font-bold text-neutral-500 tracking-widest">MOLIE_LM</span>
+                      <div className="ml-auto">
+                        <a
+                          href="https://hgihub.cloud"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[10px] uppercase tracking-[0.2em] text-neutral-400 hover:text-white transition-colors"
+                        >
+                          HGIHUB.CLOUD
+                        </a>
+                      </div>
                  </div>
                  <div className="flex-1 flex items-center justify-center">
                     <p className="text-neutral-500 font-mono tracking-widest">SELECCIONE_PROYECTO</p>
