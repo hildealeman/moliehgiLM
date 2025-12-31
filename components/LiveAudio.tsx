@@ -7,11 +7,12 @@ import { getEffectiveClientApiKey } from '../src/services/geminiService';
 interface LiveAudioProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenSettings: () => void;
   systemContext: string;
   onSaveTranscript: (text: string) => void;
 }
 
-const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, onSaveTranscript }) => {
+const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, onOpenSettings, systemContext, onSaveTranscript }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState<number[]>(new Array(5).fill(10));
@@ -478,12 +479,20 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, systemContext, o
                  </button>
               </div>
           ) : (
-              <button 
+              <div className="flex flex-col gap-3 items-center">
+                <button
+                  onClick={onOpenSettings}
+                  className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 text-xs uppercase font-bold tracking-wider border border-orange-500/50"
+                >
+                  Abrir Configuración (API Key)
+                </button>
+                <button
                   onClick={onClose}
                   className="bg-neutral-800 hover:bg-neutral-700 text-white px-6 py-2 text-xs uppercase font-bold tracking-wider border border-neutral-700"
-              >
+                >
                   Close & Retry
-              </button>
+                </button>
+              </div>
           )}
           
           {hasSaved && (

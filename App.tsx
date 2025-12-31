@@ -7,7 +7,7 @@ import LoginScreen from './components/LoginScreen';
 import VoiceAuthModal from './components/VoiceAuthModal';
 import { Source, ChatMessage, SourceHistoryItem, Project, UserProfile } from './types';
 import { storageService } from './src/services/storageService';
-import { getEffectiveApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMultimodal } from './src/services/geminiService';
+import { getEffectiveApiKey, getEffectiveClientApiKey, getSystemApiKey, setStoredApiKey, extractTextFromMultimodal } from './src/services/geminiService';
 import { supabase } from './src/lib/supabase/client';
 import { Menu } from 'lucide-react';
 
@@ -50,6 +50,15 @@ const App: React.FC = () => {
   const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showVoiceAuthModal, setShowVoiceAuthModal] = useState(false);
+
+  const handleOpenLive = () => {
+    const clientKey = getEffectiveClientApiKey();
+    if (!clientKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    setIsLiveOpen(true);
+  };
 
   const autoSaveRef = useRef({ sources, chatHistory, sourceHistory, activeProjectId, projects });
   const chatSaveTimerRef = useRef<number | null>(null);
@@ -540,7 +549,7 @@ const App: React.FC = () => {
                         setChatHistory={setChatHistory} 
                         sources={sources}
                         onAddSource={addSource}
-                        onOpenLive={() => setIsLiveOpen(true)}
+                        onOpenLive={handleOpenLive}
                         onToggleSidebar={() => setIsSidebarOpen(true)}
                     />
                 </div>
@@ -552,7 +561,7 @@ const App: React.FC = () => {
                             setChatHistory={setChatHistory} 
                             sources={sources}
                             onAddSource={addSource}
-                            onOpenLive={() => setIsLiveOpen(true)}
+                            onOpenLive={handleOpenLive}
                             onToggleSidebar={() => setIsSidebarOpen(true)}
                         />
                     </div>
@@ -593,6 +602,7 @@ const App: React.FC = () => {
       <LiveAudio 
         isOpen={isLiveOpen} 
         onClose={() => setIsLiveOpen(false)} 
+        onOpenSettings={() => setShowApiKeyModal(true)}
         systemContext={getSystemContext()}
         onSaveTranscript={handleSaveLiveTranscript}
       />
