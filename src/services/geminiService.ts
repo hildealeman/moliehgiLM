@@ -138,7 +138,15 @@ export const generateTextResponse = async (
                   prompt,
                   history,
                   // Send simplified source context to reduce payload size if using RAG
-                  sources: sources.map(s => ({ title: s.title, content: s.extractedText || s.content })),
+                  sources: sources.map(s => {
+                    const isBinary = s.type === 'image' || s.mimeType === 'application/pdf' || String(s.mimeType || '').startsWith('image/');
+                    return {
+                      title: s.title,
+                      content: isBinary ? s.content : (s.extractedText || s.content),
+                      type: s.type,
+                      mimeType: s.mimeType,
+                    };
+                  }),
                   config: { useThinking, useSearch }
               }
           });
@@ -318,8 +326,21 @@ export const generateImage = async (prompt: string, options: ImageGenOptions): P
 
 export const analyzeImage = async (base64Image: string, prompt: string): Promise<string> => {
     try {
+        if (AI_PROVIDER === 'gemini_proxy') {
+            if (!supabase) throw new Error("Supabase missing");
+            const { data, error } = await supabase.functions.invoke('gemini-proxy', {
+                body: {
+                    action: 'analyzeImage',
+                    image: base64Image,
+                    prompt,
+                }
+            });
+            if (error) throw error;
+            return data.text || "No se pudo analizar la imagen.";
+        }
+
         const ai = getClient();
-        if (!ai) throw new Error("Image analysis not supported in proxy mode yet.");
+        if (!ai) throw new Error("Client initialization failed");
 
         const cleanData = base64Image.includes('base64,') ? base64Image.split('base64,')[1] : base64Image;
         const mimeType = base64Image.includes('data:image/jpeg') ? 'image/jpeg' : 'image/png';

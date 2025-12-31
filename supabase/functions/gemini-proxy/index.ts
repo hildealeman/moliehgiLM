@@ -93,7 +93,7 @@ const getCorsHeaders = (req: Request) => {
 
 const geminiGenerateContent = async (
   prompt: string,
-  opts?: { useSearch?: boolean; history?: string[]; sources?: Array<{ title?: string; content?: string }> },
+  opts?: { useSearch?: boolean; history?: string[]; sources?: Array<{ title?: string; content?: string; mimeType?: string; type?: string }> },
 ) => {
   const primaryModel = Deno.env.get("GEMINI_MODEL") || "";
   const models = pickModels(primaryModel, DEFAULT_MODEL_FALLBACKS);
@@ -104,30 +104,40 @@ const geminiGenerateContent = async (
 
   const parts: any[] = [];
   if (sources.length > 0) {
-    const expanded: Array<{ title: string; content: string }> = [];
-
     for (const s of sources) {
       const title = String(s?.title || 'Fuente');
       const content = String(s?.content || '');
+      const declaredMime = String((s as any)?.mimeType || '').trim();
+
+      const isBinary =
+        (declaredMime && (declaredMime.startsWith('image/') || declaredMime === 'application/pdf')) ||
+        isProbablyDataUrl(content);
+
+      if (isBinary) {
+        const parsed = parseDataUrl(content);
+        const mimeType = declaredMime || parsed.mimeType || 'application/octet-stream';
+        parts.push({
+          inline_data: {
+            mime_type: mimeType,
+            data: parsed.data,
+          },
+        });
+        parts.push({ text: `[Archivo adjunto: ${title}]` });
+        continue;
+      }
+
       if (isProbablyUrl(content)) {
         try {
           const text = await fetchUrlText(content);
-          expanded.push({ title, content: `URL: ${content}\n\nTEXTO_EXTRAIDO:\n${text.slice(0, 12000)}` });
+          parts.push({ text: `FUENTE_URL [${title}]: ${content}\nTEXTO_EXTRAIDO:\n${text.slice(0, 12000)}` });
         } catch (e) {
-          expanded.push({ title, content: `URL: ${content}\n\nERROR_CRAWL: ${String((e as any)?.message || e)}` });
+          parts.push({ text: `FUENTE_URL [${title}]: ${content}\nERROR_CRAWL: ${String((e as any)?.message || e)}` });
         }
-      } else {
-        expanded.push({ title, content: content.slice(0, 4000) });
+        continue;
       }
-    }
 
-    parts.push({
-      text:
-        "FUENTES (resumen):\n" +
-        expanded
-          .map((s) => `- ${s.title}: ${s.content}`)
-          .join("\n"),
-    });
+      parts.push({ text: `FUENTE_TEXTO [${title}]:\n${content.slice(0, 8000)}` });
+    }
   }
 
   if (history.length > 0) {
@@ -181,6 +191,57 @@ const parseDataUrl = (dataUrl: string): { mimeType: string; data: string } => {
   const [meta, b64] = s.split("base64,");
   const m = meta.match(/data:(.*?);/);
   return { mimeType: m?.[1] || "audio/webm", data: b64 };
+};
+
+const isProbablyDataUrl = (value: string): boolean => {
+  const s = String(value || '').trim();
+  return /^data:/i.test(s) && s.includes('base64,');
+};
+
+const geminiAnalyzeImage = async (imageDataUrl: string, prompt: string) => {
+  const primaryModel = Deno.env.get("GEMINI_MODEL") || "";
+  const models = pickModels(primaryModel, DEFAULT_MODEL_FALLBACKS);
+  const parsed = parseDataUrl(imageDataUrl);
+  const mimeType = parsed.mimeType || 'image/png';
+
+  let lastErr: Error | null = null;
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inline_data: { mime_type: mimeType, data: parsed.data } },
+              { text: String(prompt || 'Describe esta imagen detalladamente.') },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const err = new Error(`Gemini REST error ${res.status}: ${text}`);
+      lastErr = err;
+      if (res.status === 404) continue;
+      throw err;
+    }
+
+    const json = await res.json();
+    const text =
+      json?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p?.text)
+        .filter(Boolean)
+        .join("") ||
+      "";
+    return { text };
+  }
+
+  throw lastErr || new Error('Gemini REST error: no supported model found');
 };
 
 const geminiTranscribe = async (dataUrl: string): Promise<string> => {
@@ -237,7 +298,7 @@ serve(async (req: any) => {
   }
 
   try {
-    const { action, prompt, history, sources, audio, config } = await req.json();
+    const { action, prompt, history, sources, audio, image, config } = await req.json();
     const corsHeaders = getCorsHeaders(req);
 
     if (!apiKey) {
@@ -259,6 +320,13 @@ serve(async (req: any) => {
         return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+    }
+
+    if (action === 'analyzeImage') {
+         const result = await geminiAnalyzeImage(String(image || ""), String(prompt || ""));
+         return new Response(JSON.stringify(result), {
+             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+         });
     }
 
     if (action === 'transcribe') {
