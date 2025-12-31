@@ -521,7 +521,14 @@ const App: React.FC = () => {
                       <button onClick={() => setIsSidebarOpen(true)} className="text-neutral-400 hover:text-white">
                           <Menu size={20} />
                       </button>
-                      <span className="ml-4 text-xs font-bold text-neutral-500 tracking-widest">MOLIE_LM</span>
+                      <div className="ml-4 flex items-center gap-2">
+                        <img
+                          src="/molielm-logo.png"
+                          alt="MolieLM"
+                          className="h-6 w-6 object-contain"
+                        />
+                        <span className="text-xs font-bold text-neutral-500 tracking-widest">MOLIE_LM</span>
+                      </div>
                       <div className="ml-auto">
                         <a
                           href="https://hgihub.cloud"

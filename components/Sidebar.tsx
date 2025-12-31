@@ -217,12 +217,17 @@ const Sidebar: React.FC<SidebarProps> = ({
     <div className="w-full h-full bg-black/95 backdrop-blur-xl border-r border-neutral-800 flex flex-col relative z-20 font-mono">
       <div className="p-6 pb-4 flex items-center justify-between">
         <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight leading-none mb-1 flex items-center gap-1">
-            <span className="text-orange-500">H</span>
-            <span>G</span>
-            <span>I</span>
-            </h1>
-            <p className="text-[10px] text-neutral-500 uppercase tracking-[0.2em] mt-1">Human Grounded Intelligence</p>
+            <div className="flex items-center gap-3">
+              <img
+                src="/molielm-logo.png"
+                alt="MolieLM"
+                className="h-10 w-10 object-contain"
+              />
+              <h1 className="text-2xl font-bold text-white tracking-tight leading-none">
+                MolieLM
+              </h1>
+            </div>
+            <p className="text-[10px] text-neutral-500 uppercase tracking-[0.2em] mt-2">Human Grounded Intelligence</p>
             <a
               href="https://hgihub.cloud"
               target="_blank"
