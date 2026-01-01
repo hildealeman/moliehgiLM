@@ -109,9 +109,13 @@ const geminiGenerateContent = async (
       const content = String(s?.content || '');
       const declaredMime = String((s as any)?.mimeType || '').trim();
 
-      const isBinary =
-        (declaredMime && (declaredMime.startsWith('image/') || declaredMime === 'application/pdf')) ||
-        isProbablyDataUrl(content);
+      const maybeBinaryByMime =
+        !!declaredMime && (declaredMime.startsWith('image/') || declaredMime === 'application/pdf');
+      const maybeBinaryByContent = isProbablyDataUrl(content) || looksLikeBase64(content);
+      // IMPORTANT: only attach inline_data if we actually have data-url/base64 content.
+      // mimeType alone is not sufficient because Supabase-mode stores binaries in Storage
+      // and the client may send placeholders or extracted text.
+      const isBinary = maybeBinaryByMime && maybeBinaryByContent;
 
       if (isBinary) {
         const parsed = parseDataUrl(content);
