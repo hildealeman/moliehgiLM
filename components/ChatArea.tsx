@@ -1267,7 +1267,18 @@ Reglas:
                 {(msg.text.includes('⛔') || msg.text.includes('⚠️')) && (
                     <div className="mb-4 flex items-center gap-2 text-red-500 font-bold uppercase tracking-widest text-[10px] border-b border-red-900 pb-2">
                         {msg.text.includes('403') ? <AlertTriangle size={14} /> : <AlertCircle size={14} />}
-                        {msg.text.includes('403') ? 'ALERTA DE SEGURIDAD: PROHIBIDO' : 'ERROR DEL SISTEMA: CLAVE INVÁLIDA'}
+                        {(() => {
+                          const t = String(msg.text || '');
+                          const is403 = t.includes('403');
+                          const isBase64 =
+                            t.toLowerCase().includes('base64') ||
+                            t.toLowerCase().includes('inline_data') ||
+                            t.toLowerCase().includes('archivo') ||
+                            t.toLowerCase().includes('adjunto');
+                          if (is403) return 'ALERTA DE SEGURIDAD: PROHIBIDO';
+                          if (isBase64) return 'ERROR DEL SISTEMA: ARCHIVO INVÁLIDO';
+                          return 'ERROR DEL SISTEMA';
+                        })()}
                     </div>
                 )}
                 
