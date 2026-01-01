@@ -1179,7 +1179,7 @@ Reglas:
         {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-neutral-700">
                 <Brain size={48} className="mb-4 text-neutral-800" />
-                <p className="text-xs uppercase tracking-widest">Awaiting Input Data...</p>
+                <p className="text-xs uppercase tracking-widest">Esperando entrada...</p>
             </div>
         )}
         
@@ -1188,7 +1188,7 @@ Reglas:
             <div className={`max-w-3xl p-4 md:p-5 border ${msg.role === 'user' ? 'bg-orange-600 border-orange-500 text-white' : 'bg-neutral-900 border-neutral-800 text-neutral-300'} ${(msg.text.includes('⛔') || msg.text.includes('⚠️')) ? 'border-red-500 bg-red-900/10' : ''}`}>
                 {msg.isThinking && (
                     <div className="flex items-center gap-2 text-[10px] font-bold text-purple-400 mb-3 uppercase tracking-widest">
-                        <Brain size={12} /> Deep_Reasoning_Active
+                        <Brain size={12} /> Razonamiento profundo activo
                     </div>
                 )}
                 
@@ -1196,7 +1196,7 @@ Reglas:
                 {(msg.text.includes('⛔') || msg.text.includes('⚠️')) && (
                     <div className="mb-4 flex items-center gap-2 text-red-500 font-bold uppercase tracking-widest text-[10px] border-b border-red-900 pb-2">
                         {msg.text.includes('403') ? <AlertTriangle size={14} /> : <AlertCircle size={14} />}
-                        {msg.text.includes('403') ? 'Security_Alert: Forbidden' : 'System_Error: Invalid Key'}
+                        {msg.text.includes('403') ? 'ALERTA DE SEGURIDAD: PROHIBIDO' : 'ERROR DEL SISTEMA: CLAVE INVÁLIDA'}
                     </div>
                 )}
                 
@@ -1211,7 +1211,7 @@ Reglas:
                                     <Eye size={12} /> <span className="hidden sm:inline">Describe</span>
                                 </button>
                                 <button onClick={() => { setActiveImageAnalysis(activeImageAnalysis === uniqueImgId ? null : uniqueImgId); setAnalysisPrompt(""); }} className={`flex items-center gap-1 hover:bg-neutral-700 text-white text-[10px] px-2 py-1 rounded border border-neutral-600 uppercase font-bold ${activeImageAnalysis === uniqueImgId ? 'bg-orange-600 border-orange-500' : 'bg-neutral-800'}`}>
-                                    <MessageSquarePlus size={12} /> <span className="hidden sm:inline">Analyze</span>
+                                    <MessageSquarePlus size={12} /> <span className="hidden sm:inline">Analizar</span>
                                 </button>
                             </div>
                         )}
