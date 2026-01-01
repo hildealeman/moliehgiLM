@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import LiveAudio from './components/LiveAudio';
@@ -726,6 +727,8 @@ const App: React.FC = () => {
           isOpen={showVoiceAuthModal}
           onClose={() => setShowVoiceAuthModal(false)}
       />
+      
+      <Analytics />
     </div>
   );
 };
