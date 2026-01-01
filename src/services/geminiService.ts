@@ -72,6 +72,39 @@ const invokeEdgeFunctionJson = async <T = any>(functionName: string, body: any):
     return (json as T);
 };
 
+const blobToDataUrl = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error);
+        reader.onloadend = () => resolve(String(reader.result || ''));
+        reader.readAsDataURL(blob);
+    });
+};
+
+const ensureBinarySourceHasInlineData = async (source: Source): Promise<Source> => {
+    const mime = String(source.mimeType || '');
+    const isBinaryType = source.type === 'image' || mime === 'application/pdf' || mime.startsWith('image/');
+    if (!isBinaryType) return source;
+
+    const c = String(source.content || '');
+    const alreadyDataUrl = c.startsWith('data:') && c.includes('base64,');
+    if (alreadyDataUrl) return source;
+
+    // Supabase-mode placeholder: download from storage if we have a path
+    if ((c === '[FILE_STORED_IN_BUCKET]' || c.length < 128) && source.storagePath) {
+        if (!supabase) return source;
+        const { data, error } = await supabase.storage
+            .from('molielm-sources')
+            .download(source.storagePath);
+        if (error) throw error;
+        if (!data) throw new Error('Storage download returned empty data');
+        const dataUrl = await blobToDataUrl(data as any);
+        return { ...source, content: dataUrl };
+    }
+
+    return source;
+};
+
 // Determine the effective API Key
 export const getSystemApiKey = () => {
     let envKey = '';
@@ -192,11 +225,20 @@ export const generateTextResponse = async (
 ): Promise<{ text: string, groundingMetadata?: any }> => {
   try {
       if (AI_PROVIDER === 'gemini_proxy') {
+          const preparedSources = await Promise.all((sources || []).map(async (s) => {
+              try {
+                  return await ensureBinarySourceHasInlineData(s);
+              } catch (e) {
+                  console.warn('Failed to download binary source from storage', e);
+                  return s;
+              }
+          }));
+
           const data = await invokeEdgeFunctionJson<{ text: string; groundingMetadata?: any }>('gemini-proxy', {
               action: 'generateContent',
               prompt,
               history,
-              sources: sources.map(s => {
+              sources: preparedSources.map(s => {
                   const contentStr = String(s.content || '');
                   const isDataUrl = contentStr.includes('base64,') && contentStr.startsWith('data:');
                   const looksBase64 = !contentStr.startsWith('data:') && /^[A-Za-z0-9+/=\s]+$/.test(contentStr) && contentStr.replace(/\s+/g, '').length > 256;

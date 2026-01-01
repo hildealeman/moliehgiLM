@@ -6,6 +6,7 @@ export interface Source {
   type: 'text' | 'file' | 'image';
   mimeType?: string; // e.g., 'application/pdf', 'text/csv'
   extractedText?: string; // Text extracted from binary files for RAG/Live context
+  storagePath?: string; // Supabase Storage path when binary content is stored remotely
 }
 
 export interface ChatMessage {

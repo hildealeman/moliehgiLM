@@ -156,7 +156,8 @@ export class SupabaseAdapter implements StorageAdapter {
             content: s.content_text || s.content_preview || "",
             type: s.type,
             mimeType: s.mime_type,
-            extractedText: s.extracted_text
+            extractedText: s.extracted_text,
+            storagePath: s.storage_path || undefined
         })),
         chatHistory: (p[TABLES.messages] || []).map((m: any) => ({
             id: m.id,
