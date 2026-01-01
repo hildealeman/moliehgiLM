@@ -21,17 +21,10 @@ export const crawlUrl = async (url: string): Promise<{ extractedText: string; su
         if (AI_PROVIDER !== 'gemini_proxy') {
             throw new Error("Crawling de URL requiere modo Proxy (servidor) para evitar CORS.");
         }
-        if (!supabase) throw new Error("Supabase missing");
-        const { data, error } = await supabase.functions.invoke('gemini-proxy', {
-            body: {
-                action: 'crawlUrl',
-                url,
-            }
+        const data = await invokeEdgeFunctionJson<any>('gemini-proxy', {
+            action: 'crawlUrl',
+            url,
         });
-        if (error) {
-            const serverMsg = (data as any)?.error;
-            throw new Error(serverMsg || error.message);
-        }
         return {
             extractedText: String((data as any)?.extractedText || ''),
             summary: String((data as any)?.summary || ''),
@@ -43,6 +36,41 @@ export const crawlUrl = async (url: string): Promise<{ extractedText: string; su
 };
 
 const AI_PROVIDER = getEnvVar('VITE_AI_PROVIDER') || 'gemini_client';
+
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
+
+const invokeEdgeFunctionJson = async <T = any>(functionName: string, body: any): Promise<T> => {
+    if (!supabase) throw new Error("Supabase missing");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase env missing");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseAnonKey,
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify(body ?? {}),
+    });
+
+    let json: any = null;
+    try {
+        json = await res.json();
+    } catch {
+        json = null;
+    }
+
+    if (!res.ok) {
+        const msg = json?.error || `Edge Function returned ${res.status}`;
+        throw new Error(msg);
+    }
+
+    return (json as T);
+};
 
 // Determine the effective API Key
 export const getSystemApiKey = () => {
@@ -156,31 +184,21 @@ export const generateTextResponse = async (
 ): Promise<{ text: string, groundingMetadata?: any }> => {
   try {
       if (AI_PROVIDER === 'gemini_proxy') {
-          if (!supabase) throw new Error("Supabase not configured for Proxy Mode");
-          
-          const { data, error } = await supabase.functions.invoke('gemini-proxy', {
-              body: {
-                  action: 'generateContent',
-                  prompt,
-                  history,
-                  // Send simplified source context to reduce payload size if using RAG
-                  sources: sources.map(s => {
-                    const isBinary = s.type === 'image' || s.mimeType === 'application/pdf' || String(s.mimeType || '').startsWith('image/');
-                    return {
+          const data = await invokeEdgeFunctionJson<{ text: string; groundingMetadata?: any }>('gemini-proxy', {
+              action: 'generateContent',
+              prompt,
+              history,
+              sources: sources.map(s => {
+                  const isBinary = s.type === 'image' || s.mimeType === 'application/pdf' || String(s.mimeType || '').startsWith('image/');
+                  return {
                       title: s.title,
                       content: isBinary ? s.content : (s.extractedText || s.content),
                       type: s.type,
                       mimeType: s.mimeType,
-                    };
-                  }),
-                  config: { useThinking, useSearch }
-              }
+                  };
+              }),
+              config: { useThinking, useSearch }
           });
-
-          if (error) {
-              const serverMsg = (data as any)?.error;
-              throw new Error(serverMsg || error.message);
-          }
           return data;
 
       } else {
@@ -356,18 +374,11 @@ export const generateImage = async (prompt: string, options: ImageGenOptions): P
 export const analyzeImage = async (base64Image: string, prompt: string): Promise<string> => {
     try {
         if (AI_PROVIDER === 'gemini_proxy') {
-            if (!supabase) throw new Error("Supabase missing");
-            const { data, error } = await supabase.functions.invoke('gemini-proxy', {
-                body: {
-                    action: 'analyzeImage',
-                    image: base64Image,
-                    prompt,
-                }
+            const data = await invokeEdgeFunctionJson<{ text: string }>('gemini-proxy', {
+                action: 'analyzeImage',
+                image: base64Image,
+                prompt,
             });
-            if (error) {
-                const serverMsg = (data as any)?.error;
-                throw new Error(serverMsg || error.message);
-            }
             return data.text || "No se pudo analizar la imagen.";
         }
 
@@ -400,17 +411,10 @@ export const analyzeImage = async (base64Image: string, prompt: string): Promise
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
     try {
         if (AI_PROVIDER === 'gemini_proxy') {
-            if (!supabase) throw new Error("Supabase missing");
-            const { data, error } = await supabase.functions.invoke('gemini-proxy', {
-                body: {
-                    action: 'transcribe',
-                    audio: base64Audio
-                }
+            const data = await invokeEdgeFunctionJson<{ text: string }>('gemini-proxy', {
+                action: 'transcribe',
+                audio: base64Audio
             });
-            if (error) {
-                const serverMsg = (data as any)?.error;
-                throw new Error(serverMsg || error.message);
-            }
             return data.text;
         }
 
