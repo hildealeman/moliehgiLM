@@ -183,6 +183,50 @@ const geminiGenerateContent = async (
   throw lastErr || new Error("Gemini REST error: no supported model found");
 };
 
+const geminiSummarizeExtractedText = async (extractedText: string, url: string) => {
+  const primaryModel = Deno.env.get("GEMINI_MODEL") || "";
+  const models = pickModels(primaryModel, DEFAULT_MODEL_FALLBACKS);
+
+  const textChunk = String(extractedText || "").slice(0, 12000);
+  const prompt =
+    `Resume en español el contenido de la siguiente página web.\n` +
+    `- Devuelve un resumen claro (5-10 viñetas) y luego 1 párrafo final.\n` +
+    `- Si detectas título/tema, inclúyelo.\n` +
+    `URL: ${String(url || "")}\n\n` +
+    `TEXTO_EXTRAIDO:\n${textChunk}`;
+
+  let lastErr: Error | null = null;
+  for (const model of models) {
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      }),
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      const err = new Error(`Gemini REST error ${res.status}: ${t}`);
+      lastErr = err;
+      if (res.status === 404) continue;
+      throw err;
+    }
+
+    const json = await res.json();
+    const text =
+      json?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p?.text)
+        .filter(Boolean)
+        .join("") ||
+      "";
+    return { text };
+  }
+
+  throw lastErr || new Error("Gemini REST error: no supported model found");
+};
+
 const parseDataUrl = (dataUrl: string): { mimeType: string; data: string } => {
   const s = String(dataUrl || "");
   if (!s.includes("base64,")) {
@@ -298,7 +342,7 @@ serve(async (req: any) => {
   }
 
   try {
-    const { action, prompt, history, sources, audio, image, config } = await req.json();
+    const { action, prompt, history, sources, audio, image, config, url } = await req.json();
     const corsHeaders = getCorsHeaders(req);
 
     if (!apiKey) {
@@ -319,6 +363,22 @@ serve(async (req: any) => {
         });
         return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+    }
+
+    if (action === 'crawlUrl') {
+        const u = String(url || '').trim();
+        if (!u) {
+          return new Response(JSON.stringify({ error: 'Missing url' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const extractedText = await fetchUrlText(u);
+        const summary = await geminiSummarizeExtractedText(extractedText, u);
+        return new Response(JSON.stringify({ url: u, extractedText, summary: summary.text }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     }
 

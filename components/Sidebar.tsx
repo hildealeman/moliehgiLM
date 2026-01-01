@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, FileText, Image as ImageIcon, Trash2, History, ArrowLeft, Clock, Database, Cloud, FolderPlus, Folder, ChevronDown, User, LogOut, Loader2, Zap, X, Minimize2, Download, MessageSquareOff, Columns, Settings, Server, Globe, Box, Edit2, Phone, Mail, Briefcase, BadgeCheck } from 'lucide-react';
 import { Source, SourceHistoryItem, Project, UserProfile } from '../types';
 import { dbService } from '../services/dbService';
+import { crawlUrl } from '../src/services/geminiService';
 
 interface SidebarProps {
   user: UserProfile;
@@ -48,6 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [tempText, setTempText] = useState("");
   const [tempUrl, setTempUrl] = useState("");
+  const [isCrawlingUrl, setIsCrawlingUrl] = useState(false);
   
   // Project Management UI State
   const [showProjectMenu, setShowProjectMenu] = useState(false);
@@ -161,7 +163,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setIsAddingSource(false);
   };
 
-  const handleAddUrl = () => {
+  const handleAddUrl = async () => {
     const raw = tempUrl.trim();
     if (!raw) return;
     let url = raw;
@@ -172,14 +174,31 @@ const Sidebar: React.FC<SidebarProps> = ({
       title = new URL(url).hostname;
     } catch {}
 
-    onAddSource({
-      id: Date.now().toString(),
-      title: `URL_${title}`,
-      content: url,
-      type: 'text',
-      mimeType: 'text/url',
-    });
-    setTempUrl('');
+    setIsCrawlingUrl(true);
+    try {
+      const { extractedText, summary } = await crawlUrl(url);
+      onAddSource({
+        id: Date.now().toString(),
+        title: `URL_${title}`,
+        content: url,
+        type: 'text',
+        mimeType: 'text/url',
+        extractedText: summary || extractedText,
+      });
+      setTempUrl('');
+    } catch (e: any) {
+      onAddSource({
+        id: Date.now().toString(),
+        title: `URL_${title}`,
+        content: url,
+        type: 'text',
+        mimeType: 'text/url',
+        extractedText: `ERROR_CRAWL: ${String(e?.message || e)}`,
+      });
+      setTempUrl('');
+    } finally {
+      setIsCrawlingUrl(false);
+    }
   };
 
   const handleConnectDrive = () => {
@@ -544,10 +563,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                         />
                         <button
                           onClick={handleAddUrl}
-                          disabled={!tempUrl.trim()}
+                          disabled={!tempUrl.trim() || isCrawlingUrl}
                           className="px-3 py-2 text-[10px] uppercase font-bold tracking-widest bg-orange-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Add
+                          {isCrawlingUrl ? 'Crawleando…' : 'Añadir'}
                         </button>
                       </div>
                       <p className="mt-2 text-[10px] text-neutral-600">
@@ -918,7 +937,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                           </div>
                       ) : (
                           <pre className="text-xs font-mono text-neutral-300 whitespace-pre-wrap leading-relaxed">
-                              {viewingSource.content}
+                              {viewingSource.mimeType === 'text/url' && viewingSource.extractedText
+                                ? viewingSource.extractedText
+                                : viewingSource.content}
                           </pre>
                       )}
                   </div>

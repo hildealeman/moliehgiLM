@@ -16,6 +16,32 @@ const getEnvVar = (key: string): string => {
   return '';
 };
 
+export const crawlUrl = async (url: string): Promise<{ extractedText: string; summary: string }> => {
+    try {
+        if (AI_PROVIDER !== 'gemini_proxy') {
+            throw new Error("Crawling de URL requiere modo Proxy (servidor) para evitar CORS.");
+        }
+        if (!supabase) throw new Error("Supabase missing");
+        const { data, error } = await supabase.functions.invoke('gemini-proxy', {
+            body: {
+                action: 'crawlUrl',
+                url,
+            }
+        });
+        if (error) {
+            const serverMsg = (data as any)?.error;
+            throw new Error(serverMsg || error.message);
+        }
+        return {
+            extractedText: String((data as any)?.extractedText || ''),
+            summary: String((data as any)?.summary || ''),
+        };
+    } catch (error) {
+        const msg = handleGeminiError(error);
+        throw new Error(msg);
+    }
+};
+
 const AI_PROVIDER = getEnvVar('VITE_AI_PROVIDER') || 'gemini_client';
 
 // Determine the effective API Key
