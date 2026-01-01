@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Globe, Image as ImageIcon, Sparkles, Brain, X, PlayCircle, Loader2, FileText, ChevronDown, ChevronRight, Zap, AlignLeft, Download, Lightbulb, Link2, Eye, MessageSquarePlus, Menu, Headphones, Network, Wand2, PauseCircle, FileAudio, FilePlus, Check, CassetteTape, Save, AlertTriangle, AlertCircle, ChefHat, Film, BadgeCheck } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ChatMessage, ImageGenOptions, Source } from '../types';
 import { generateTextResponse, generateImage, transcribeAudio, textToSpeech, analyzeImage, generateSuggestions, generatePodcastAudio } from '../src/services/geminiService';
 
@@ -113,10 +114,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
         `- Extraer 3 a 8 afirmaciones verificables por fuente (si aplica).\n` +
         `- Verificar cada afirmación con evidencia externa usando búsqueda/grounding y proporcionar enlaces.\n` +
         `- Señalar banderas rojas (falta de autor/fecha, sesgos, sensacionalismo, falta de referencias, inconsistencias).\n\n` +
-        `REQUISITOS DE SALIDA (Markdown):\n` +
+        `REQUISITOS DE SALIDA (OBLIGATORIO):\n` +
+        `- Devuelve el resultado como TABLA(S) en Markdown tipo GitHub (GFM).\n` +
+        `- NO uses listas para reemplazar tablas: la sección principal DEBE ser una tabla.\n` +
+        `- Usa el formato de tabla con '|' y una fila separadora con '---'.\n\n` +
         `1) Tabla por fuente con columnas: Fuente | Credibilidad(0-100) | Afirmaciones clave | Veredicto (confirmado/parcial/no verificable/contradicción) | Evidencia (URLs) | Banderas rojas\n` +
-        `2) Conclusión general (qué fuentes usar y cuáles evitar).\n` +
-        `3) Lista de 'Afirmaciones no verificables' (si existen) y qué datos faltan.\n\n` +
+        `2) Conclusión general (en texto breve).\n` +
+        `3) Tabla final opcional: Afirmación | Motivo no verificable | Qué datos faltan\n\n` +
         (deep
           ? `MODO DEEP SEARCH ACTIVADO: valida más a fondo, busca 2-4 fuentes independientes por afirmación y prioriza fuentes primarias.\n\n`
           : `MODO BÚSQUEDA RÁPIDA: valida con al menos 1-2 fuentes externas por afirmación.\n\n`) +
@@ -182,6 +186,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
       pre: (props: any) => <pre className="bg-black/60 border border-neutral-800 p-3 rounded overflow-x-auto text-[11px] md:text-xs my-3" {...props} />,
       hr: () => <div className="my-4 border-t border-neutral-800" />,
       a: (props: any) => <a className="text-orange-400 hover:text-orange-300 underline" target="_blank" rel="noreferrer" {...props} />,
+      table: (props: any) => (
+        <div className="my-4 w-full overflow-x-auto border border-neutral-800 rounded">
+          <table className="w-full text-xs md:text-sm border-collapse" {...props} />
+        </div>
+      ),
+      thead: (props: any) => <thead className="bg-neutral-950" {...props} />,
+      tbody: (props: any) => <tbody className="divide-y divide-neutral-800" {...props} />,
+      tr: (props: any) => <tr className="hover:bg-neutral-900/40" {...props} />,
+      th: (props: any) => <th className="text-left px-3 py-2 font-bold text-neutral-100 border-b border-neutral-800" {...props} />,
+      td: (props: any) => <td className="align-top px-3 py-2 text-neutral-200 border-b border-neutral-900" {...props} />,
   };
 
   const mindMapToSvgDataUrl = (tree: MindMapNode): string => {
@@ -1369,7 +1383,7 @@ Reglas:
                 )}
 
                 <div className="max-w-none font-sans">
-                    <ReactMarkdown components={markdownComponents}>{msg.text}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{msg.text}</ReactMarkdown>
                 </div>
 
                 {msg.sources && msg.sources.length > 0 && (
