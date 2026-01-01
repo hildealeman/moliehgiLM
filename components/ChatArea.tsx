@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Globe, Image as ImageIcon, Sparkles, Brain, X, PlayCircle, Loader2, FileText, ChevronDown, ChevronRight, Zap, AlignLeft, Download, Lightbulb, Link2, Eye, MessageSquarePlus, Menu, Headphones, Network, Wand2, PauseCircle, FileAudio, FilePlus, Check, CassetteTape, Save, AlertTriangle, AlertCircle, ChefHat, Film } from 'lucide-react';
+import { Send, Mic, Globe, Image as ImageIcon, Sparkles, Brain, X, PlayCircle, Loader2, FileText, ChevronDown, ChevronRight, Zap, AlignLeft, Download, Lightbulb, Link2, Eye, MessageSquarePlus, Menu, Headphones, Network, Wand2, PauseCircle, FileAudio, FilePlus, Check, CassetteTape, Save, AlertTriangle, AlertCircle, ChefHat, Film, BadgeCheck } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { ChatMessage, ImageGenOptions, Source } from '../types';
 import { generateTextResponse, generateImage, transcribeAudio, textToSpeech, analyzeImage, generateSuggestions, generatePodcastAudio } from '../src/services/geminiService';
@@ -83,6 +83,57 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
       // If there's a single top-level bullet, use it as title.
       if (root.children.length === 1) return root.children[0];
       return root;
+  };
+
+  const handleVerifySources = async () => {
+    if (isProcessing) return;
+    if (!sources || sources.length === 0) {
+      setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: 'No hay fuentes cargadas para verificar.' }]);
+      return;
+    }
+
+    setIsProcessing(true);
+    setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'user', text: 'VERIFICAR FUENTES' }]);
+
+    try {
+      const deep = useSearch;
+      const srcList = sources
+        .map((s, idx) => {
+          const isUrl = s.mimeType === 'text/url' || /^https?:\/\//i.test(String(s.content || ''));
+          const base = isUrl ? `URL: ${s.content}` : `FUENTE: ${s.title}`;
+          const content = String(s.extractedText || s.content || '').slice(0, 4000);
+          return `#${idx + 1} ${s.title}\n${base}\nCONTENIDO_RESUMIDO:\n${content}`;
+        })
+        .join('\n\n---\n\n');
+
+      const verifyPrompt =
+        `Actúa como un verificador de fuentes (fact-checking) y auditor de credibilidad.\n\n` +
+        `OBJETIVO:\n` +
+        `- Evaluar la credibilidad de cada fuente (0-100).\n` +
+        `- Extraer 3 a 8 afirmaciones verificables por fuente (si aplica).\n` +
+        `- Verificar cada afirmación con evidencia externa usando búsqueda/grounding y proporcionar enlaces.\n` +
+        `- Señalar banderas rojas (falta de autor/fecha, sesgos, sensacionalismo, falta de referencias, inconsistencias).\n\n` +
+        `REQUISITOS DE SALIDA (Markdown):\n` +
+        `1) Tabla por fuente con columnas: Fuente | Credibilidad(0-100) | Afirmaciones clave | Veredicto (confirmado/parcial/no verificable/contradicción) | Evidencia (URLs) | Banderas rojas\n` +
+        `2) Conclusión general (qué fuentes usar y cuáles evitar).\n` +
+        `3) Lista de 'Afirmaciones no verificables' (si existen) y qué datos faltan.\n\n` +
+        (deep
+          ? `MODO DEEP SEARCH ACTIVADO: valida más a fondo, busca 2-4 fuentes independientes por afirmación y prioriza fuentes primarias.\n\n`
+          : `MODO BÚSQUEDA RÁPIDA: valida con al menos 1-2 fuentes externas por afirmación.\n\n`) +
+        `FUENTES A VERIFICAR:\n${srcList}`;
+
+      const response = await generateTextResponse(verifyPrompt, [], sources, false, true);
+      setChatHistory(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'model',
+        text: response.text,
+        sources: response.groundingMetadata?.groundingChunks?.map((c: any) => c.web?.uri).filter(Boolean)
+      }]);
+    } catch (e: any) {
+      setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'model', text: e.message || 'Error al verificar fuentes.' }]);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const getMicErrorMessage = (err: any): string => {
@@ -556,6 +607,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
     if (!textToSend.trim()) return;
+
+    const normalized = textToSend.trim().toLowerCase();
+    const isVerifyCommand =
+      normalized === '/verificar' ||
+      normalized === 'verificar fuentes' ||
+      normalized === 'verificar la veracidad de las fuentes' ||
+      normalized.startsWith('/verificar ');
+
+    if (isVerifyCommand) {
+      setInput("");
+      await handleVerifySources();
+      return;
+    }
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -1167,11 +1231,18 @@ Reglas:
                 <span className="sm:hidden">HGI_v1</span>
             </h2>
         </div>
-        <button onClick={onOpenLive} className="flex items-center gap-2 bg-orange-600 text-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider hover:bg-orange-500 transition-colors">
-            <Zap size={10} className="fill-current" />
-            <span className="hidden sm:inline">Live_Audio_Link</span>
-            <span className="sm:hidden">LIVE</span>
-        </button>
+        <div className="flex items-center gap-2">
+            <button onClick={handleVerifySources} disabled={isProcessing || sources.length === 0} className="flex items-center gap-2 border border-neutral-800 text-neutral-200 px-3 py-1 text-[10px] font-bold uppercase tracking-wider hover:border-orange-500/50 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                <BadgeCheck size={12} />
+                <span className="hidden sm:inline">Verificar fuentes</span>
+                <span className="sm:hidden">Verificar</span>
+            </button>
+            <button onClick={onOpenLive} className="flex items-center gap-2 bg-orange-600 text-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider hover:bg-orange-500 transition-colors">
+                <Zap size={10} className="fill-current" />
+                <span className="hidden sm:inline">Live_Audio_Link</span>
+                <span className="sm:hidden">LIVE</span>
+            </button>
+        </div>
       </div>
 
       {/* Messages */}
