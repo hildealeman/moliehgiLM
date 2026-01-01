@@ -318,8 +318,10 @@ export class SupabaseAdapter implements StorageAdapter {
       }));
 
       if (payload.length > 0) {
-        const { error: insErr } = await supabase.from(TABLES.messages).insert(payload);
-        if (insErr) console.error("Supabase Insert Messages Error", insErr);
+        const { error: upErr } = await supabase
+          .from(TABLES.messages)
+          .upsert(payload, { onConflict: 'id' });
+        if (upErr) console.error("Supabase Upsert Messages Error", upErr);
       }
     } catch (e) {
       console.error("Supabase saveChatHistory exception", e);
