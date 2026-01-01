@@ -118,8 +118,14 @@ const geminiGenerateContent = async (
         const mimeType = declaredMime || parsed.mimeType || 'application/octet-stream';
         const data = String(parsed.data || '').replace(/\s+/g, '').trim();
 
-        if (!looksLikeBase64(data)) {
-          throw new Error(`Binary source '${title}' missing/invalid base64 data. If using Supabase storage, the client must send a data: URL or base64 payload.`);
+        if (!looksLikeBase64(data) || !isBase64Decodable(data)) {
+          // Do not fail the whole request: skip the binary attachment but keep the chat usable.
+          parts.push({
+            text:
+              `ADJUNTO_OMITIDO [${title}]: Base64 inválido o truncado (no se pudo decodificar). ` +
+              `Vuelve a subir el archivo o re-sincroniza la fuente.`,
+          });
+          continue;
         }
         parts.push({
           inline_data: {
@@ -248,6 +254,18 @@ const looksLikeBase64 = (value: string): boolean => {
   const s = String(value || '').replace(/\s+/g, '').trim();
   if (s.length < 64) return false;
   return /^[A-Za-z0-9+/=]+$/.test(s);
+};
+
+const isBase64Decodable = (value: string): boolean => {
+  const s = String(value || '').replace(/\s+/g, '').trim();
+  if (!s) return false;
+  try {
+    // atob throws on invalid base64
+    atob(s);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const isProbablyDataUrl = (value: string): boolean => {
@@ -414,9 +432,20 @@ serve(async (req: any) => {
   } catch (error: any) {
     const corsHeaders = getCorsHeaders(req);
     const message = error?.message || String(error);
+
+    // If the upstream Gemini call returned a 4xx, propagate the status code
+    // so the client doesn't see a misleading 500.
+    let status = 500;
+    const m = String(message || '');
+    const match = m.match(/Gemini REST error\s+(\d{3})\s*:/i);
+    if (match?.[1]) {
+      const code = Number(match[1]);
+      if (Number.isFinite(code) && code >= 400 && code < 600) status = code;
+    }
+
     return new Response(
       JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
 });
