@@ -16,6 +16,11 @@ const isUuid = (value: string): boolean => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 };
 
+const isDataUrl = (value: string): boolean => {
+  const s = String(value || '').trim();
+  return /^data:/i.test(s);
+};
+
 const MOLIELM_BUILD = 'b822e41';
 
 const estimateContentBytes = (source: Source): number | undefined => {
@@ -410,6 +415,9 @@ const App: React.FC = () => {
         headerLine,
         "",
         meta,
+        source.type !== 'text' && source.mimeType === 'application/pdf'
+          ? `\n[Descargar archivo PDF](#)`
+          : "",
         "",
         "#### TL;DR",
         `> ${tldr}`,
@@ -457,11 +465,52 @@ const App: React.FC = () => {
     const immediateText = persisted.type === 'text' ? (persisted.content || "") : (persisted.extractedText || "");
     const isPreliminary = persisted.type !== 'text' && !persisted.extractedText;
     const summary = buildAutoSummaryMarkdown(persisted, immediateText, isPreliminary);
+
+    const initialImages: string[] | undefined =
+      persisted.type === 'image' && isDataUrl(persisted.content)
+        ? [persisted.content]
+        : undefined;
+
     upsertChatMessage({
         id: summaryId,
         role: 'model',
         text: summary,
+        images: initialImages,
     });
+
+    // If binary content is stored in Supabase Storage, create a signed URL and update the chat preview.
+    if ((persisted.type === 'image' || persisted.mimeType === 'application/pdf') && persisted.storagePath && supabase) {
+      supabase.storage
+        .from('molielm-sources')
+        .createSignedUrl(persisted.storagePath, 60 * 30)
+        .then(({ data, error }) => {
+          if (error) throw error;
+          const signedUrl = String((data as any)?.signedUrl || '');
+          if (!signedUrl) return;
+
+          if (persisted.type === 'image') {
+            upsertChatMessage({
+              id: summaryId,
+              role: 'model',
+              text: summary,
+              images: [signedUrl],
+            });
+            return;
+          }
+
+          if (persisted.mimeType === 'application/pdf') {
+            const patched = summary.replace('[Descargar archivo PDF](#)', `[Descargar archivo PDF](${signedUrl})`);
+            upsertChatMessage({
+              id: summaryId,
+              role: 'model',
+              text: patched,
+            });
+          }
+        })
+        .catch((e) => {
+          console.warn('Failed to create signed URL for source preview', e);
+        });
+    }
 
     setSourceHistory(prev => [
       {
