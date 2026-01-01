@@ -116,10 +116,15 @@ const geminiGenerateContent = async (
       if (isBinary) {
         const parsed = parseDataUrl(content);
         const mimeType = declaredMime || parsed.mimeType || 'application/octet-stream';
+        const data = String(parsed.data || '').replace(/\s+/g, '').trim();
+
+        if (!looksLikeBase64(data)) {
+          throw new Error(`Binary source '${title}' missing/invalid base64 data. If using Supabase storage, the client must send a data: URL or base64 payload.`);
+        }
         parts.push({
           inline_data: {
             mime_type: mimeType,
-            data: parsed.data,
+            data,
           },
         });
         parts.push({ text: `[Archivo adjunto: ${title}]` });
@@ -230,11 +235,19 @@ const geminiSummarizeExtractedText = async (extractedText: string, url: string) 
 const parseDataUrl = (dataUrl: string): { mimeType: string; data: string } => {
   const s = String(dataUrl || "");
   if (!s.includes("base64,")) {
-    return { mimeType: "audio/webm", data: s };
+    const guessed = s.match(/^data:([^;]+);/i)?.[1] || "application/octet-stream";
+    return { mimeType: guessed, data: s };
   }
   const [meta, b64] = s.split("base64,");
   const m = meta.match(/data:(.*?);/);
-  return { mimeType: m?.[1] || "audio/webm", data: b64 };
+  const cleaned = String(b64 || "").replace(/\s+/g, "").trim();
+  return { mimeType: m?.[1] || "application/octet-stream", data: cleaned };
+};
+
+const looksLikeBase64 = (value: string): boolean => {
+  const s = String(value || '').replace(/\s+/g, '').trim();
+  if (s.length < 64) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(s);
 };
 
 const isProbablyDataUrl = (value: string): boolean => {

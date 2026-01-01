@@ -132,8 +132,16 @@ const handleGeminiError = (error: any): never => {
         throw new Error(`⛔ **ACCESO DENEGADO (403)**\n\nGoogle ha bloqueado esta solicitud porque tu API Key tiene restricciones de dominio activas.\n\n**SOLUCIÓN:**\n1. Ve a [Google AI Studio > API Keys](https://aistudio.google.com/app/apikey)\n2. Haz clic en tu clave.\n3. En **"Client restrictions"**, selecciona **"None"**.\n4. Si el problema persiste, usa el botón **Configuración (⚙️)** en la barra lateral para ingresar una nueva clave.`);
     }
     
-    if (msg.includes('400') || msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT')) {
-        throw new Error("⚠️ **API KEY INVÁLIDA (400)**\n\nLa clave actual no es válida.\n\nUsa el botón **Configuración (⚙️)** en la parte inferior de la barra lateral para ingresar una clave válida.");
+    if (msg.includes('Base64 decoding failed') || msg.includes('inline_data.data') || msg.includes('TYPE_BYTES')) {
+        throw new Error("⚠️ **ERROR DE ARCHIVO (BASE64)**\n\nEl modelo recibió un archivo/imagen con datos Base64 inválidos o incompletos.\n\n**Causas comunes:**\n- La imagen/PDF se guardó en storage y el chat recibió un placeholder en vez del contenido Base64.\n- El Base64 tiene espacios/saltos de línea o está truncado.\n\n**Solución:** vuelve a subir el archivo o asegúrate de que la fuente adjunta sea un `data:...;base64,...` válido.");
+    }
+
+    if (msg.includes('API key not valid') || msg.includes('invalid api key') || msg.includes('API_KEY_INVALID')) {
+        throw new Error("⚠️ **API KEY INVÁLIDA**\n\nLa clave actual no es válida.\n\nUsa el botón **Configuración (⚙️)** en la parte inferior de la barra lateral para ingresar una clave válida.");
+    }
+
+    if (msg.includes('400') || msg.includes('INVALID_ARGUMENT')) {
+        throw new Error(`⚠️ **SOLICITUD INVÁLIDA (400)**\n\n${msg}`);
     }
 
     if (msg === "MISSING_API_KEY") {
@@ -189,7 +197,11 @@ export const generateTextResponse = async (
               prompt,
               history,
               sources: sources.map(s => {
-                  const isBinary = s.type === 'image' || s.mimeType === 'application/pdf' || String(s.mimeType || '').startsWith('image/');
+                  const contentStr = String(s.content || '');
+                  const isDataUrl = contentStr.includes('base64,') && contentStr.startsWith('data:');
+                  const looksBase64 = !contentStr.startsWith('data:') && /^[A-Za-z0-9+/=\s]+$/.test(contentStr) && contentStr.replace(/\s+/g, '').length > 256;
+                  const isBinaryType = s.type === 'image' || s.mimeType === 'application/pdf' || String(s.mimeType || '').startsWith('image/');
+                  const isBinary = isBinaryType && (isDataUrl || looksBase64);
                   return {
                       title: s.title,
                       content: isBinary ? s.content : (s.extractedText || s.content),
