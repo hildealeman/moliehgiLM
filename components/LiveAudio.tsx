@@ -38,7 +38,7 @@ const LiveAudio: React.FC<LiveAudioProps> = ({ isOpen, onClose, onOpenSettings, 
   const outputContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const processorRef = useRef<any>(null); // ScriptProcessorNode is deprecated but still functional
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   // Track connection start time to detect immediate failures (auth/referrer issues)

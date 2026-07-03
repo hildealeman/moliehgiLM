@@ -5,6 +5,72 @@ declare const Deno: any;
 
 const apiKey = Deno.env.get('GEMINI_API_KEY') || '';
 
+// Rate limiting configuration
+const DAILY_TOKEN_LIMIT = parseInt(Deno.env.get('GEMINI_DAILY_TOKEN_LIMIT') || '1000000', 10);
+const REQUESTS_PER_HOUR = parseInt(Deno.env.get('GEMINI_REQUESTS_PER_HOUR') || '100', 10);
+
+// Simple in-memory rate limiting (for production, use Redis/Supabase KV)
+const requestCounts = new Map<string, { count: number; resetTime: number }>();
+const tokenUsage = new Map<string, { tokens: number; resetDate: string }>();
+
+// Get client identifier (IP or user ID if authenticated)
+const getClientId = (req: Request): string => {
+  const authHeader = req.headers.get('authorization');
+  if (authHeader) {
+    // If authenticated, use user ID from JWT (simplified)
+    return authHeader.substring(0, 20);
+  }
+  // Fallback to IP
+  const forwarded = req.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0] : req.headers.get('x-real-ip') || 'unknown';
+  return ip;
+};
+
+// Check rate limit
+const checkRateLimit = (clientId: string): { allowed: boolean; remaining: number } => {
+  const now = Date.now();
+  const hour = 3600000; // 1 hour in ms
+  
+  const current = requestCounts.get(clientId);
+  
+  if (!current || now > current.resetTime) {
+    // Reset or initialize
+    requestCounts.set(clientId, { count: 1, resetTime: now + hour });
+    return { allowed: true, remaining: REQUESTS_PER_HOUR - 1 };
+  }
+  
+  if (current.count >= REQUESTS_PER_HOUR) {
+    return { allowed: false, remaining: 0 };
+  }
+  
+  current.count++;
+  return { allowed: true, remaining: REQUESTS_PER_HOUR - current.count };
+};
+
+// Check daily token limit
+const checkTokenLimit = (clientId: string, estimatedTokens: number): { allowed: boolean; remaining: number } => {
+  const today = new Date().toISOString().split('T')[0];
+  const current = tokenUsage.get(clientId);
+  
+  if (!current || current.resetDate !== today) {
+    // Reset or initialize for new day
+    tokenUsage.set(clientId, { tokens: estimatedTokens, resetDate: today });
+    return { allowed: true, remaining: DAILY_TOKEN_LIMIT - estimatedTokens };
+  }
+  
+  if (current.tokens + estimatedTokens > DAILY_TOKEN_LIMIT) {
+    return { allowed: false, remaining: DAILY_TOKEN_LIMIT - current.tokens };
+  }
+  
+  current.tokens += estimatedTokens;
+  return { allowed: true, remaining: DAILY_TOKEN_LIMIT - current.tokens };
+};
+
+// Estimate token count (rough approximation: 1 token ≈ 4 characters)
+const estimateTokens = (text: string): number => {
+  return Math.ceil(text.length / 4);
+};
+
 const isProbablyUrl = (value: string): boolean => {
   const s = String(value || '').trim();
   if (!s) return false;
@@ -385,6 +451,38 @@ serve(async (req: any) => {
         JSON.stringify({ error: 'Missing GEMINI_API_KEY in Edge Function secrets' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
+    }
+
+    // Rate limiting checks
+    const clientId = getClientId(req);
+    const rateLimit = checkRateLimit(clientId);
+    
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Rate limit exceeded. Please try again later.',
+          limit: REQUESTS_PER_HOUR,
+          remaining: 0
+        }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '3600' } },
+      );
+    }
+
+    // Token limit check for generateContent action
+    if (action === 'generateContent' && prompt) {
+      const estimatedTokens = estimateTokens(prompt + (history?.join('') || '') + (sources?.map((s: any) => s.content).join('') || ''));
+      const tokenLimit = checkTokenLimit(clientId, estimatedTokens);
+      
+      if (!tokenLimit.allowed) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Daily token limit exceeded. Please try again tomorrow.',
+            limit: DAILY_TOKEN_LIMIT,
+            remaining: tokenLimit.remaining
+          }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
     }
     
     // Construct prompt (the model also receives sources/history as structured parts)

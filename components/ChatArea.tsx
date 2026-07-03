@@ -357,7 +357,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ chatHistory, setChatHistory, source
   const fallbackRecCtxRef = useRef<AudioContext | null>(null);
   const fallbackRecStreamRef = useRef<MediaStream | null>(null);
   const fallbackRecSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const fallbackRecProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const fallbackRecProcessorRef = useRef<any>(null); // ScriptProcessorNode is deprecated but still functional
   const fallbackRecPcmRef = useRef<Int16Array[]>([]);
   const [imgOptions, setImgOptions] = useState<ImageGenOptions>({ aspectRatio: '1:1', size: '1K' });
 
